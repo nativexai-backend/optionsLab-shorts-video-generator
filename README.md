@@ -1,36 +1,126 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OptionsLab Shorts Video Generator
 
-## Getting Started
+Internal OptionsLab tool that turns a written script into a finished, branded 9:16 short video (TikTok / Reels / Shorts style) — voiceover, word-synced captions, animated visuals, branding, and MP4 export, all in one place.
 
-First, run the development server:
+**Pipeline:** script → AI voiceover → auto-captions → AI shot list → timeline edit → branded MP4.
+
+Built with **Next.js 16** + **Remotion 4** (React-based video rendering).
+
+---
+
+## Features
+
+- **Script → Voiceover** — six presenter avatars, each mapped to an ElevenLabs voice, with one-click voice previews. Multiple "takes" per project; pick which take ships.
+- **Smart TTS pronunciation** — money and numbers are normalized before synthesis (`$5.08` → "five dollars and eight cents", `102` → "one hundred and two", `2-3` → "two to three") while the script you typed stays untouched.
+- **Word-synced captions** — generated audio is transcribed with word timestamps (Groq Whisper, local Whisper fallback). Karaoke-style highlighting, editable text with automatic timing re-alignment, full style controls (font, position, colors).
+- **AI shot list** — the script is broken into 3–8 scenes, each with a category, suggested animation, and a production-ready image prompt (bright, modern editorial photography house style; prompts double as stock-search queries). Per-scene **Refine** regenerates a prompt, optionally steered by your direction. Providers: Groq → Claude → rule-based fallback.
+- **Timeline editor** — live Remotion preview, audio waveform, draggable segments, per-image pan/zoom animations (Ken Burns, pans, zooms), drag-to-reorder slots, undo/redo (⌘Z / ⌘⇧Z).
+- **Branding** — audio-reactive avatar overlay with four visualizer styles (Pulse Rings, Liquid Wave, Bars, Minimal Glow), animated intro (circle reveal / slide down), OptionsLab outro card with disclaimer, persistent "OptionsLab App" badge.
+- **Background music** — optional bed that loops under the voiceover and fades out at the end.
+- **Export** — server-side render to H.264 MP4 at 720×1280 or 1080×1920, with real progress reporting; renders run as jobs and survive a page reload.
+- **Thumbnail generator** — pick any project image, add bold headline copy over a dark scrim, download a 720×1280 PNG cover. Settings save per project.
+- **Multi-project** — auto-save (500 ms debounce), project switcher with thumbnails and date grouping, Ctrl/Cmd+S manual save, server-side persistence on disk.
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+# create .env.local — see below
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment variables (`.env.local`)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Variable | Required | Used for |
+|---|---|---|
+| `ELEVENLABS_API_KEY` | **Yes** (for voiceover) | TTS generation + avatar voice previews |
+| `GROQ_API_KEY` | Recommended | Whisper transcription (captions) + script analysis + prompt refinement |
+| `ANTHROPIC_API_KEY` | Optional | Claude fallback for script analysis / prompt refinement |
+| `DATA_DIR` | Optional | Overrides where project data is stored (default `data/projects`) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The app degrades gracefully: without Groq, transcription falls back to a local Whisper install and scene analysis falls back to a rule-based engine. Without ElevenLabs, voice features are disabled and the UI shows a banner. Service status: `GET /api/health`.
 
-## Learn More
+### Presenters / voices
 
-To learn more about Next.js, take a look at the following resources:
+Avatar images live in `public/avatars/` (filename = presenter name). The avatar→voice mapping is in `src/lib/voices.ts` — add an image and a matching ElevenLabs voice ID to add a presenter.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Using the app
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The left panel is the workflow, in order:
 
-## Deploy on Vercel
+1. **① Script & Voice** — pick a presenter (▶ to preview their voice), write/paste the script (5,000-char limit with estimated audio duration), Generate Voiceover. Each generation creates a *take*; click **Use** on the take that should ship. Optional background music and audio delay live here too.
+2. **② Visuals** — *Suggest Visuals from Script* builds the AI shot list. **Copy** prompts into your image tool, generate images, then drop them into the numbered placeholder slots (numbers/colors match the timeline). Or skip the AI and just drop images.
+3. **③ Captions & Style** — captions appear automatically after a voiceover. Edit the text freely (timings re-align), tune font/position/colors.
+4. **④ Branding** — avatar size/position and speaking-indicator style, badge position, intro animation, outro card (OptionsLab preset or custom).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Then **Export MP4** (top right) — name it, pick 1080×1920 or 720×1280, and the render runs server-side with live progress; the download starts automatically, even if you reloaded mid-render. **Thumbnail** (next to Export) produces a matching PNG cover.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Shortcuts: `Space` play/pause · `⌘S` save · `⌘Z`/`⌘⇧Z` undo/redo. The **Safe zones** toggle under the player shows where TikTok/Reels UI covers the frame.
+
+## Architecture
+
+```
+src/
+├── app/
+│   ├── page.tsx                  # entry — renders the Editor
+│   └── api/
+│       ├── tts/                  # ElevenLabs synthesis (+ pronunciation normalization)
+│       ├── voice-preview/        # cached per-avatar voice samples
+│       ├── transcribe/           # Groq Whisper → word timestamps (local Whisper fallback)
+│       ├── analyze-script/       # AI shot list (Groq → Claude → rules)
+│       ├── refine-prompt/        # one-shot image-prompt rewrite, optionally steered
+│       ├── render/               # job-based Remotion render (POST start, GET poll/download)
+│       ├── projects/             # project index + state + file sync (disk-backed)
+│       └── health/               # which API keys are configured
+├── components/
+│   ├── Editor.tsx                # state owner: projects, takes, history, sync
+│   ├── InputPanel.tsx            # the 4-step control panel
+│   ├── PlayerPanel.tsx           # Remotion <Player> preview + safe zones
+│   ├── Timeline*.tsx             # ruler, waveform, image track, playhead
+│   ├── RenderButton.tsx          # export modal + job polling
+│   └── ThumbnailModal.tsx        # canvas thumbnail generator
+├── remotion/
+│   ├── VideoComposition.tsx      # composition root (all layers)
+│   ├── BackgroundSlideshow.tsx   # images + pan/zoom animations
+│   ├── CaptionOverlay.tsx        # word-synced captions
+│   ├── VoiceVisualizer.tsx       # shared audio-reactive avatar (4 styles)
+│   ├── AnimatedIntro/Outro.tsx   # intro reveal, outro card
+│   ├── BrandingBadge.tsx         # persistent corner badge
+│   └── types.ts                  # dimensions, schemas, defaults, presets
+└── lib/
+    ├── storage.ts                # client persistence (localStorage + IndexedDB) + server sync
+    ├── server-storage.ts         # disk persistence (data/projects), serialized index writes
+    ├── transcript.ts             # Whisper token merging + caption re-alignment  [tested]
+    ├── scene-timing.ts           # shot list → timeline matching                 [tested]
+    ├── tts-text.ts               # money/number speech normalization            [tested]
+    └── voices.ts                 # avatar → ElevenLabs voice map
+```
+
+Video constants (`src/remotion/types.ts`): 720×1280 @ 30 fps; exports can scale to 1080×1920.
+
+## Storage model
+
+Projects are saved in **two layers**, both local to the machine running the app:
+
+- **Disk (source of truth): `data/projects/`** — one folder per project with `state.json` (script, captions, timings, settings) and `files/` (audio, images, takes, music as plain files). `index.json` holds names. Back up by copying this folder. Gitignored.
+- **Browser (working copy)** — localStorage for state, IndexedDB for media; makes loads instant and survives server downtime. Cleared browser data is re-hydrated from disk.
+
+Auto-save runs 500 ms after any change and syncs both layers (including the project name, which self-heals against write races).
+
+## Development
+
+```bash
+npm run dev     # dev server (Remotion bundle rebuilds per render in dev)
+npm run build   # production build
+npm test        # vitest — transcript, scene-timing, and TTS-normalization suites
+npm run lint
+```
+
+Notes:
+- Render jobs are kept in process memory (`globalThis`) with output files in the OS temp dir — a server restart forgets in-flight jobs (the client clears its reference automatically).
+- The local Whisper fallback path is configured at the top of `src/app/api/transcribe/route.ts`; adjust or rely on Groq.
+- `next.config.ts` and `remotion.config.ts` carry the Remotion/Next integration settings.
+
+## Roadmap
+
+- **Image library** — tag previously generated images by entity/category (e.g. "Elon portrait", "Tesla logo") and match them to shot-list scenes automatically, so recurring subjects reuse existing assets instead of regenerating.
