@@ -250,6 +250,10 @@ export interface SceneSuggestion {
   animationReason: string;
   priority: "essential" | "recommended" | "optional";
   wordRange: [number, number];
+  // When a long beat is auto-split for pacing, sub-shots share the parent's
+  // content but carry their position (1-based) within the beat.
+  part?: number;
+  partCount?: number;
 }
 
 export const DEFAULT_MUSIC_VOLUME = 0.15;

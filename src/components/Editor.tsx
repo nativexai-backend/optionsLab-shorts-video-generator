@@ -57,7 +57,7 @@ import {
 } from "../lib/storage";
 
 import { postProcessTranscript } from "../lib/transcript";
-import { computeSceneTimings } from "../lib/scene-timing";
+import { computeSceneTimings, paceSuggestions, PACE_PRESETS, PaceName } from "../lib/scene-timing";
 
 // ── Undo/redo history ──
 // Snapshot-based: captures the editable state (files by reference — File objects
@@ -177,6 +177,10 @@ export const Editor: React.FC = () => {
   const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider>("auto");
   const [availableProviders, setAvailableProviders] = useState<AnalysisProvider[]>(["auto", "rules"]);
   const [lastUsedProvider, setLastUsedProvider] = useState<string | null>(null);
+  const [visualPace, setVisualPace] = useState<PaceName>("normal");
+  // The raw (un-paced) beats from the last analysis, so the pace control can
+  // re-split instantly without another API call.
+  const rawSuggestionsRef = useRef<SceneSuggestion[]>([]);
 
   // Mark the shot list stale when the script changes (instead of silently wiping it)
   const [shotListStale, setShotListStale] = useState(false);
@@ -320,6 +324,8 @@ export const Editor: React.FC = () => {
     setActiveVoiceName(null);
     setActiveTakeId(null);
     setSceneSuggestions([]);
+    setVisualPace("normal");
+    rawSuggestionsRef.current = [];
   }, []);
 
   const buildSerializableState = useCallback((): SerializableState => ({
@@ -352,11 +358,12 @@ export const Editor: React.FC = () => {
     avatarPath,
     scriptText,
     thumbnail: { copy: thumbnailCopy, fontSize: thumbnailFontSize, imageIndex: thumbnailImageIndex },
+    visualPace,
     audioTakes: audioTakes.map((t) => ({ id: t.id, label: t.label, avatarName: t.avatarName, scriptUsed: t.scriptUsed, transcript: t.transcript, createdAt: t.createdAt })),
     activeVoiceName,
     activeTakeId,
-    sceneSuggestions: sceneSuggestions.map((s) => ({ id: s.id, scriptSegment: s.scriptSegment, description: s.description, imagePrompt: s.imagePrompt, category: s.category, suggestedAnimation: s.suggestedAnimation, animationReason: s.animationReason, priority: s.priority, wordRange: s.wordRange })),
-  }), [audioDelay, musicVolume, durationInSeconds, transcript, images, intro, outro, introAnimation, outroCard, style, avatarPath, scriptText, thumbnailCopy, thumbnailFontSize, thumbnailImageIndex, audioTakes, activeVoiceName, activeTakeId, sceneSuggestions]);
+    sceneSuggestions: sceneSuggestions.map((s) => ({ id: s.id, scriptSegment: s.scriptSegment, description: s.description, imagePrompt: s.imagePrompt, category: s.category, suggestedAnimation: s.suggestedAnimation, animationReason: s.animationReason, priority: s.priority, wordRange: s.wordRange, part: s.part, partCount: s.partCount })),
+  }), [audioDelay, musicVolume, durationInSeconds, transcript, images, intro, outro, introAnimation, outroCard, style, avatarPath, scriptText, thumbnailCopy, thumbnailFontSize, thumbnailImageIndex, visualPace, audioTakes, activeVoiceName, activeTakeId, sceneSuggestions]);
 
   const forceSaveCurrent = useCallback(() => {
     if (!currentProjectId) return;
@@ -474,6 +481,9 @@ export const Editor: React.FC = () => {
         setThumbnailCopy(state.thumbnail.copy ?? "");
         setThumbnailFontSize(state.thumbnail.fontSize ?? 78);
         setThumbnailImageIndex(state.thumbnail.imageIndex ?? 0);
+      }
+      if (state.visualPace) {
+        setVisualPace(state.visualPace as PaceName);
       }
       if (state.sceneSuggestions && state.sceneSuggestions.length > 0) {
         setSceneSuggestions(state.sceneSuggestions as SceneSuggestion[]);
@@ -1306,6 +1316,23 @@ export const Editor: React.FC = () => {
 
   // ── Scene analysis handlers ──
 
+  // Expand raw beats into a paced shot list: long beats split into sub-shots so
+  // visuals change at a watchable rhythm instead of one image held for 18s.
+  const paceBeats = useCallback(
+    (beats: SceneSuggestion[], pace: PaceName): SceneSuggestion[] => {
+      const parts = paceSuggestions(beats, transcript, durationInSeconds, PACE_PRESETS[pace]);
+      return parts.map((p) => ({
+        ...p.source,
+        id: p.partCount > 1 ? `${p.source.id}::${p.part}` : p.source.id,
+        scriptSegment: p.scriptSegment,
+        wordRange: p.wordRange,
+        part: p.part,
+        partCount: p.partCount,
+      }));
+    },
+    [transcript, durationInSeconds]
+  );
+
   const runAnalysis = useCallback(async () => {
     if (!scriptText.trim() || isAnalyzingScript) return;
     setIsAnalyzingScript(true);
@@ -1322,7 +1349,9 @@ export const Editor: React.FC = () => {
         throw new Error(err.error || "Analysis failed");
       }
       const data = await res.json();
-      setSceneSuggestions(data.scenes ?? []);
+      const beats: SceneSuggestion[] = data.scenes ?? [];
+      rawSuggestionsRef.current = beats;
+      setSceneSuggestions(paceBeats(beats, visualPace));
       setShotListStale(false);
       if (data.method) setLastUsedProvider(data.method);
       if (data.available) setAvailableProviders(data.available);
@@ -1331,7 +1360,22 @@ export const Editor: React.FC = () => {
     } finally {
       setIsAnalyzingScript(false);
     }
-  }, [scriptText, isAnalyzingScript, showToast, analysisProvider]);
+  }, [scriptText, isAnalyzingScript, showToast, analysisProvider, visualPace, paceBeats]);
+
+  // Re-pace instantly when the pace control changes — re-split the stored raw
+  // beats; fall back to a fresh analysis if none are cached (e.g. after reload).
+  const handleVisualPaceChange = useCallback(
+    (pace: PaceName) => {
+      setVisualPace(pace);
+      if (rawSuggestionsRef.current.length > 0) {
+        setSceneSuggestions(paceBeats(rawSuggestionsRef.current, pace));
+      } else if (sceneSuggestions.length > 0 && scriptText.trim()) {
+        // No raw cache (reloaded project) — re-derive beats by re-analyzing
+        runAnalysis();
+      }
+    },
+    [paceBeats, sceneSuggestions.length, scriptText, runAnalysis]
+  );
 
   const handleAnalyzeScript = useCallback(async () => {
     // If timeline already has images with actual sources, confirm via dialog
@@ -1664,6 +1708,8 @@ export const Editor: React.FC = () => {
           availableProviders={availableProviders}
           lastUsedProvider={lastUsedProvider}
           onAnalysisProviderChange={setAnalysisProvider}
+          visualPace={visualPace}
+          onVisualPaceChange={handleVisualPaceChange}
         />
       </aside>
       <main aria-label="Video preview" className="flex-1 flex flex-col min-w-0 overflow-hidden">

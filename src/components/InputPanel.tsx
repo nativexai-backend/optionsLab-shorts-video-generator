@@ -4,6 +4,7 @@ import React, { useRef, useState, useEffect, useId, useMemo, useCallback } from 
 import { TranscriptWord, ImageSegment, IntroOutroSegment, IntroAnimationConfig, OutroCardConfig, OutroCardContent, VideoStyle, AVATAR_POSITIONS, BADGE_POSITIONS, IMAGE_ANIMATIONS, ImageAnimation, INTRO_ANIMATION_STYLES, OUTRO_STYLES, OutroStyle, BadgePosition, SceneSuggestion, VISUALIZER_STYLES, VisualizerStyle } from "../remotion/types";
 import type { ProjectMeta } from "../lib/storage";
 import { realignWords } from "../lib/transcript";
+import { PACE_OPTIONS, PaceName } from "../lib/scene-timing";
 
 const SCRIPT_CHAR_LIMIT = 5000;
 const SPOKEN_WORDS_PER_SECOND = 2.5;
@@ -92,6 +93,8 @@ interface Props {
   availableProviders: ("groq" | "claude" | "rules" | "auto")[];
   lastUsedProvider: string | null;
   onAnalysisProviderChange: (provider: "groq" | "claude" | "rules" | "auto") => void;
+  visualPace: PaceName;
+  onVisualPaceChange: (pace: PaceName) => void;
 }
 
 type IntroType = "none" | "image" | "animation";
@@ -242,6 +245,11 @@ function ShotListCard({ scene, index, onApply, onRefine, isRefining }: { scene: 
             <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wider ${catColor}`}>
               {scene.category}
             </span>
+            {scene.partCount != null && scene.partCount > 1 && (
+              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-700/70 text-zinc-300" title="This beat was split into multiple shots for pacing">
+                shot {scene.part}/{scene.partCount}
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 text-[9px] text-zinc-500">
               <span className={`w-1.5 h-1.5 rounded-full ${priority.dot}`} />
               {priority.label}
@@ -433,6 +441,8 @@ const InputPanelInner: React.FC<Props> = ({
   availableProviders,
   lastUsedProvider,
   onAnalysisProviderChange,
+  visualPace,
+  onVisualPaceChange,
 }) => {
   const transcriptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -939,6 +949,29 @@ const InputPanelInner: React.FC<Props> = ({
                 ))}
               </select>
             </div>
+
+            {/* Visual pace — controls how often the visuals change */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-zinc-500 flex-shrink-0" title="How often the visuals change. Long beats are auto-split into this many shots.">Pace</span>
+              <div className="flex flex-1 rounded-md overflow-hidden border border-zinc-700">
+                {PACE_OPTIONS.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => onVisualPaceChange(p.value)}
+                    className={`flex-1 px-2 py-1 text-[10px] font-medium transition-colors ${
+                      visualPace === p.value
+                        ? "bg-violet-600 text-white"
+                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
+                    }`}
+                    title={p.value === "chill" ? "~5s per shot" : p.value === "normal" ? "~4s per shot" : "~2.5s per shot"}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {!scriptText.trim() && (
               <p className="text-[10px] text-zinc-500">Write a script in step 1 and AI will suggest a visual for each beat — or just drop images below.</p>
             )}

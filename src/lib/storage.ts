@@ -94,10 +94,11 @@ export interface SerializableState {
   avatarPath?: string | null;
   scriptText?: string;
   thumbnail?: { copy: string; fontSize: number; imageIndex: number };
+  visualPace?: string;
   audioTakes?: Array<{ id: string; label: string; avatarName: string; scriptUsed: string; transcript: { word: string; start: number; end: number }[]; createdAt: number }>;
   activeVoiceName?: string | null;
   activeTakeId?: string | null;
-  sceneSuggestions?: Array<{ id: string; scriptSegment: string; description: string; imagePrompt?: string; category: string; suggestedAnimation: string; animationReason: string; priority: string; wordRange: [number, number] }>;
+  sceneSuggestions?: Array<{ id: string; scriptSegment: string; description: string; imagePrompt?: string; category: string; suggestedAnimation: string; animationReason: string; priority: string; wordRange: [number, number]; part?: number; partCount?: number }>;
 }
 
 // Old flat-key state (kept for migration)

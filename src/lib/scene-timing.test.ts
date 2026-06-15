@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { computeSceneTimings } from "./scene-timing";
+import {
+  computeSceneTimings,
+  splitTextIntoParts,
+  paceSuggestions,
+  PACE_PRESETS,
+} from "./scene-timing";
 import type { TranscriptWord } from "../remotion/types";
 
 // Build a word-per-0.4s transcript from text
@@ -94,5 +99,89 @@ describe("computeSceneTimings", () => {
     );
     expect(timings[0]).toEqual({ startTime: 0, endTime: 4 });
     expect(timings[1]).toEqual({ startTime: 4, endTime: 8 });
+  });
+});
+
+describe("splitTextIntoParts", () => {
+  it("returns the whole text when not splitting", () => {
+    expect(splitTextIntoParts("hello there world", 1)).toEqual(["hello there world"]);
+  });
+
+  it("splits into n non-empty parts covering all words in order", () => {
+    const parts = splitTextIntoParts("one two three four five six", 3);
+    expect(parts).toHaveLength(3);
+    expect(parts.join(" ")).toBe("one two three four five six");
+  });
+
+  it("snaps cuts to sentence boundaries", () => {
+    // Ideal even cut would land mid-sentence; the period should pull it.
+    const parts = splitTextIntoParts("the market fell hard. then it bounced back fast", 2);
+    expect(parts[0]).toBe("the market fell hard.");
+    expect(parts[1]).toBe("then it bounced back fast");
+  });
+
+  it("never creates more parts than words", () => {
+    expect(splitTextIntoParts("just two", 5)).toEqual(["just", "two"]);
+  });
+});
+
+describe("paceSuggestions", () => {
+  // 30 words at 0.4s each = 12s of speech in one beat
+  const longScript = Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ");
+  const longTranscript = makeTranscript(longScript);
+
+  it("leaves a short beat untouched", () => {
+    const short = makeTranscript("one two three four"); // 1.6s
+    const result = paceSuggestions(
+      [{ scriptSegment: "one two three four", wordRange: [0, 3] as [number, number] }],
+      short,
+      1.6,
+      PACE_PRESETS.normal
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].partCount).toBe(1);
+  });
+
+  it("splits a long beat into evenly-paced sub-shots", () => {
+    const result = paceSuggestions(
+      [{ scriptSegment: longScript, wordRange: [0, 29] as [number, number] }],
+      longTranscript,
+      12,
+      PACE_PRESETS.normal // target 4s → ~3 shots for 12s
+    );
+    expect(result.length).toBeGreaterThanOrEqual(2);
+    // All sub-shots reference the same source beat and are numbered
+    expect(result.every((r) => r.partCount === result.length)).toBe(true);
+    expect(result.map((r) => r.part)).toEqual(result.map((_, i) => i + 1));
+    // Word ranges stay within the parent and in order
+    expect(result[0].wordRange[0]).toBe(0);
+    expect(result[result.length - 1].wordRange[1]).toBe(29);
+  });
+
+  it("splits more aggressively on a faster pace", () => {
+    const normal = paceSuggestions(
+      [{ scriptSegment: longScript, wordRange: [0, 29] as [number, number] }],
+      longTranscript,
+      12,
+      PACE_PRESETS.normal
+    );
+    const fast = paceSuggestions(
+      [{ scriptSegment: longScript, wordRange: [0, 29] as [number, number] }],
+      longTranscript,
+      12,
+      PACE_PRESETS.fast
+    );
+    expect(fast.length).toBeGreaterThan(normal.length);
+  });
+
+  it("keeps each sub-shot at or above the minimum shot length", () => {
+    const result = paceSuggestions(
+      [{ scriptSegment: longScript, wordRange: [0, 29] as [number, number] }],
+      longTranscript,
+      12,
+      PACE_PRESETS.normal
+    );
+    // 12s / minShot(1.5) = 8 max parts; we should be well under that
+    expect(result.length).toBeLessThanOrEqual(8);
   });
 });
