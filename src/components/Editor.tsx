@@ -653,6 +653,7 @@ export const Editor: React.FC = () => {
     setOutroCard(snap.outroCard);
     setScriptText(snap.scriptText);
     setSceneSuggestions(snap.sceneSuggestions);
+    rawSuggestionsRef.current = snap.sceneSuggestions;
     // Re-sync persisted image files with the restored set
     snap.imageFiles.forEach((f, i) => persistFile(`image_${i}`, f));
     if (currentProjectId) deleteProjectFile(currentProjectId, `image_${snap.imageFiles.length}`);
@@ -1437,6 +1438,30 @@ export const Editor: React.FC = () => {
     runAnalysis();
   }, [images, runAnalysis]);
 
+  // Delete a whole block: remove the shot card AND its matching timeline slot.
+  const handleDeleteSuggestion = useCallback((id: string) => {
+    const idx = sceneSuggestions.findIndex((s) => s.id === id);
+    if (idx === -1) return;
+
+    // The curated list becomes the new baseline, so changing pace afterwards
+    // won't resurrect the deleted block.
+    const updated = sceneSuggestions.filter((_, i) => i !== idx);
+    setSceneSuggestions(updated);
+    rawSuggestionsRef.current = updated;
+
+    // Remove the timeline slot at the same position, if one exists (slot
+    // numbers track shot-card numbers 1:1).
+    if (idx < imageFiles.length) {
+      const removed = images[idx];
+      if (removed?.src) URL.revokeObjectURL(removed.src);
+      const newFiles = imageFiles.filter((_, i) => i !== idx);
+      setImageFiles(newFiles);
+      newFiles.forEach((f, i) => persistFile(`image_${i}`, f));
+      if (currentProjectId) deleteProjectFile(currentProjectId, `image_${newFiles.length}`);
+      setImages((prev) => prev.filter((_, i) => i !== idx));
+    }
+  }, [sceneSuggestions, images, imageFiles, persistFile, currentProjectId]);
+
   // Scene timings are computed for the WHOLE shot list at once (sequential
   // transcript matching — see src/lib/scene-timing.ts) so repeated phrases
   // can't anchor a scene to the wrong occurrence.
@@ -1702,6 +1727,7 @@ export const Editor: React.FC = () => {
           onAnalyzeScript={handleAnalyzeScript}
           onApplySuggestion={handleApplySuggestion}
           onApplyAllSuggestions={handleApplyAllSuggestions}
+          onDeleteSuggestion={handleDeleteSuggestion}
           onRefinePrompt={handleRefinePrompt}
           refiningPromptId={refiningPromptId}
           analysisProvider={analysisProvider}

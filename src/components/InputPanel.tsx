@@ -87,6 +87,7 @@ interface Props {
   onAnalyzeScript: () => void;
   onApplySuggestion: (suggestion: SceneSuggestion) => void;
   onApplyAllSuggestions: () => void;
+  onDeleteSuggestion: (id: string) => void;
   onRefinePrompt: (id: string, guidance?: string) => void;
   refiningPromptId: string | null;
   analysisProvider: "groq" | "claude" | "rules" | "auto";
@@ -212,7 +213,7 @@ const PRIORITY_INDICATOR: Record<string, { dot: string; label: string }> = {
   optional: { dot: "bg-zinc-500", label: "Optional" },
 };
 
-function ShotListCard({ scene, index, onApply, onRefine, isRefining }: { scene: SceneSuggestion; index: number; onApply: () => void; onRefine: (guidance?: string) => void; isRefining: boolean }) {
+function ShotListCard({ scene, index, onApply, onDelete, onRefine, isRefining }: { scene: SceneSuggestion; index: number; onApply: () => void; onDelete: () => void; onRefine: (guidance?: string) => void; isRefining: boolean }) {
   const [showScript, setShowScript] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -339,14 +340,25 @@ function ShotListCard({ scene, index, onApply, onRefine, isRefining }: { scene: 
             </div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onApply}
-          className="flex-shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-700 rounded text-[10px] font-medium text-white transition-colors whitespace-nowrap"
-          title={`${scene.suggestedAnimation} — ${scene.animationReason}`}
-        >
-          + Timeline
-        </button>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label="Delete block"
+            title="Delete this block (removes it from the shot list and timeline)"
+            className="w-5 h-5 flex items-center justify-center rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-700/60 transition-colors"
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
+          </button>
+          <button
+            type="button"
+            onClick={onApply}
+            className="px-2 py-1 bg-violet-600 hover:bg-violet-700 rounded text-[10px] font-medium text-white transition-colors whitespace-nowrap"
+            title={`${scene.suggestedAnimation} — ${scene.animationReason}`}
+          >
+            + Timeline
+          </button>
+        </div>
       </div>
       <div className="flex items-center gap-1.5 mt-1.5">
         <span className="text-[9px] text-zinc-500 bg-zinc-700/50 px-1.5 py-0.5 rounded" title={scene.animationReason}>
@@ -435,6 +447,7 @@ const InputPanelInner: React.FC<Props> = ({
   onAnalyzeScript,
   onApplySuggestion,
   onApplyAllSuggestions,
+  onDeleteSuggestion,
   onRefinePrompt,
   refiningPromptId,
   analysisProvider,
@@ -1024,6 +1037,7 @@ const InputPanelInner: React.FC<Props> = ({
                       scene={scene}
                       index={i}
                       onApply={() => onApplySuggestion(scene)}
+                      onDelete={() => onDeleteSuggestion(scene.id)}
                       onRefine={(guidance) => onRefinePrompt(scene.id, guidance)}
                       isRefining={refiningPromptId === scene.id}
                     />
