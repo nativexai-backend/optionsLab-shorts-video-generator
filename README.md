@@ -57,6 +57,32 @@ Then **Export MP4** (top right) — name it, pick 1080×1920 or 720×1280, and t
 
 Shortcuts: `Space` play/pause · `⌘S` save · `⌘Z`/`⌘⇧Z` undo/redo. The **Safe zones** toggle under the player shows where TikTok/Reels UI covers the frame.
 
+## How image suggestion works
+
+The shot list turns a script into a set of timed image slots. The guiding principle: **the AI decides _what_ to show; deterministic code decides _how long_ and _how many_** — because LLMs are unreliable at duration and word-position math, which was the original source of mis-timed and oversized blocks.
+
+**1. Analysis (`/api/analyze-script`).** The script is broken into 3–8 content *beats*. Each beat returns a category (`person` / `logo` / `chart` / `product` / `b-roll` / `text-overlay`), the script segment it covers, a suggested animation, a priority, and a production-ready **image prompt**. Prompts follow a bright, modern editorial house style, avoid baked-in text/numbers, and double as stock-photo search queries. Provider chain: **Groq → Claude → rule-based fallback**, so it works with no paid keys (the rule engine detects tickers, executives, and trend direction via regex).
+
+**2. Pace-aware splitting (`src/lib/scene-timing.ts`).** Before the list is shown, each beat is measured against the transcript for its real on-screen duration. Any beat longer than the pace cap is split into evenly-sized **sub-shots** at natural sentence/word boundaries, so visuals change at a watchable rhythm instead of one image held for 15+ seconds. Each sub-shot carries a real slice of the script text, so it still timestamp-matches accurately at apply time.
+
+The **Visual pace** control (Chill / Normal / Fast ≈ 5 / 4 / 2.5s per shot) re-splits the cached beats instantly without another API call, and is saved per project. Example — a 60s video with 5 beats expands to roughly:
+
+| Pace   | Shots | Avg length |
+|--------|-------|------------|
+| Chill  | ~10   | ~6s        |
+| Normal | ~15   | ~4s        |
+| Fast   | ~20   | ~3s        |
+
+Short beats that are already a good length pass through unsplit. Sub-shots show a `shot 2/3` badge so it's clear which cards came from the same beat.
+
+**3. Timing match (`computeSceneTimings`).** Each shot's text slice is matched against the transcript with a forward-only cursor (so a phrase repeated later in the script can't pull a shot to the wrong spot), then segments are built contiguously — overlaps and gaps are structurally impossible. Without a transcript yet, it estimates from word counts and firms up once a voiceover exists.
+
+**4. Refine (`/api/refine-prompt`).** Each shot card has a **✦ Refine** button that rewrites its image prompt — once per click, optionally steered by a one-line direction ("night skyline, more dramatic"). The house-style and no-text rules always survive.
+
+**5. Fill the slots.** *Add All to Timeline* turns every shot into a numbered placeholder slot (numbers/colors match the timeline). You **Copy** the prompt into an image tool, generate, and drop the result into the slot — or drop your own images and skip the AI entirely. The shot-list card, image slot, and timeline segment stay 1:1 by number and color.
+
+> Roadmap tie-in: pace-aware splitting produces more, smaller slots — which the planned **image library** (see below) is designed to auto-fill from previously used assets, so recurring subjects (a ticker logo, a CEO portrait) are reused instead of re-sourced.
+
 ## Architecture
 
 ```
