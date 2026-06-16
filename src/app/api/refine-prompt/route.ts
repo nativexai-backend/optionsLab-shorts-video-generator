@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { anthropicKey } from "@/lib/anthropic";
 
 // One-shot prompt refinement: takes a scene's existing image prompt and
 // rewrites it with a prompt-engineer persona. Each call should produce a
@@ -78,7 +79,7 @@ async function refineWithGroq(userMessage: string): Promise<string> {
 
 async function refineWithClaude(userMessage: string): Promise<string> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic();
+  const client = new Anthropic({ apiKey: anthropicKey() });
 
   const response = await client.messages.create({
     model: "claude-haiku-4-5",
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (anthropicKey()) {
     try {
       const imagePrompt = await refineWithClaude(userMessage);
       return NextResponse.json({ imagePrompt, method: "claude" });

@@ -7,6 +7,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { Timeline } from "./Timeline";
 import { RenderButton } from "./RenderButton";
 import { ThumbnailModal } from "./ThumbnailModal";
+import { LibraryModal } from "./LibraryModal";
 
 const PlayerPanel = lazy(() => import("./PlayerPanel").then(m => ({ default: m.PlayerPanel })));
 import {
@@ -58,6 +59,8 @@ import {
 
 import { postProcessTranscript } from "../lib/transcript";
 import { computeSceneTimings, paceSuggestions, PACE_PRESETS, PaceName } from "../lib/scene-timing";
+import { addImageToLibrary, fetchLibraryImageAsFile } from "../lib/library-client";
+import type { LibraryImage } from "../lib/library-types";
 
 // ── Undo/redo history ──
 // Snapshot-based: captures the editable state (files by reference — File objects
@@ -876,6 +879,13 @@ export const Editor: React.FC = () => {
       setImageFiles(allFiles);
       for (let i = imageFiles.length; i < allFiles.length; i++) {
         persistFile(`image_${i}`, allFiles[i]);
+        // Auto-capture into the library with whatever scene context aligns
+        const scene = sceneSuggestions[i];
+        addImageToLibrary(allFiles[i], {
+          description: scene?.description,
+          category: scene?.category,
+          projectId: currentProjectId,
+        });
       }
 
       setImages((prev) => {
@@ -905,7 +915,7 @@ export const Editor: React.FC = () => {
         return all;
       });
     },
-    [durationInSeconds, imageFiles, persistFile]
+    [durationInSeconds, imageFiles, persistFile, sceneSuggestions, currentProjectId]
   );
 
   const handleRemoveImage = useCallback(
@@ -950,8 +960,16 @@ export const Editor: React.FC = () => {
           return { ...img, src: url };
         })
       );
+
+      // Auto-capture into the library, tagged with this slot's scene context
+      const scene = sceneSuggestions[index];
+      addImageToLibrary(file, {
+        description: scene?.description,
+        category: scene?.category,
+        projectId: currentProjectId,
+      });
     },
-    [imageFiles, persistFile]
+    [imageFiles, persistFile, sceneSuggestions, currentProjectId]
   );
 
   const handleReorderImages = useCallback(
@@ -1368,14 +1386,15 @@ export const Editor: React.FC = () => {
   const handleVisualPaceChange = useCallback(
     (pace: PaceName) => {
       setVisualPace(pace);
-      if (rawSuggestionsRef.current.length > 0) {
-        setSceneSuggestions(paceBeats(rawSuggestionsRef.current, pace));
-      } else if (sceneSuggestions.length > 0 && scriptText.trim()) {
-        // No raw cache (reloaded project) — re-derive beats by re-analyzing
-        runAnalysis();
+      // Re-pace from the original beats if cached; otherwise re-pace the current
+      // shot list (after a reload). Re-pacing only splits over-long beats — going
+      // to a coarser pace can't merge already-split shots without the raw beats.
+      const source = rawSuggestionsRef.current.length > 0 ? rawSuggestionsRef.current : sceneSuggestions;
+      if (source.length > 0) {
+        setSceneSuggestions(paceBeats(source, pace));
       }
     },
-    [paceBeats, sceneSuggestions.length, scriptText, runAnalysis]
+    [paceBeats, sceneSuggestions]
   );
 
   const handleAnalyzeScript = useCallback(async () => {
@@ -1393,6 +1412,7 @@ export const Editor: React.FC = () => {
 
   // ── Thumbnail generator modal ──
   const [showThumbnailModal, setShowThumbnailModal] = useState(false);
+  const [showLibraryModal, setShowLibraryModal] = useState(false);
 
   // ── Per-scene prompt refinement (one new variation per click, optionally steered) ──
   const [refiningPromptId, setRefiningPromptId] = useState<string | null>(null);
@@ -1490,70 +1510,108 @@ export const Editor: React.FC = () => {
     [sceneSuggestions, getAllSuggestionTimings, durationInSeconds]
   );
 
-  const handleApplyAllSuggestions = useCallback(() => {
-    const currentCount = images.length;
-    const suggestionCount = sceneSuggestions.length;
-    const timings = getAllSuggestionTimings();
+  // Load a library image directly into a shot's timeline slot, creating the
+  // slot (and any earlier ones) if the timeline isn't built yet.
+  const handlePickFromLibrary = useCallback(
+    async (suggestion: SceneSuggestion, image: LibraryImage) => {
+      const idx = sceneSuggestions.findIndex((s) => s.id === suggestion.id);
+      if (idx === -1) return;
+      const file = await fetchLibraryImageAsFile(image);
+      if (!file) {
+        showToast("Couldn't load that library image", "error");
+        return;
+      }
+      const timings = getAllSuggestionTimings();
+      const url = URL.createObjectURL(file);
 
-    if (currentCount === 0) {
-      // No existing segments — create fresh placeholders for all
-      const newImages: ImageSegment[] = [];
-      const newFiles: File[] = [];
-      sceneSuggestions.forEach((suggestion, i) => {
-        const { startTime, endTime } = timings[i];
-        newImages.push({ src: "", startTime, endTime, animation: suggestion.suggestedAnimation });
-        newFiles.push(new File([], `placeholder-${suggestion.id}.png`, { type: "image/png" }));
+      setImages((prev) => {
+        const next = [...prev];
+        for (let i = next.length; i <= idx; i++) {
+          const t = timings[i] ?? { startTime: 0, endTime: durationInSeconds };
+          next[i] = { src: "", startTime: t.startTime, endTime: t.endTime, animation: sceneSuggestions[i].suggestedAnimation };
+        }
+        if (next[idx].src) URL.revokeObjectURL(next[idx].src);
+        next[idx] = { ...next[idx], src: url };
+        return next;
       });
-      setImages(newImages);
-      setImageFiles(newFiles);
-      showToast(`${newImages.length} placeholder slots added — drop your images into them below`, "success");
-      return;
+      setImageFiles((prev) => {
+        const next = [...prev];
+        for (let i = next.length; i <= idx; i++) {
+          next[i] = new File([], `placeholder-${sceneSuggestions[i].id}.png`, { type: "image/png" });
+        }
+        next[idx] = file;
+        next.forEach((f, i) => persistFile(`image_${i}`, f));
+        return next;
+      });
+
+      // Record this project's use of the image (dedupes server-side)
+      addImageToLibrary(file, { description: suggestion.description, category: suggestion.category, projectId: currentProjectId });
+      showToast("Loaded from library", "success");
+    },
+    [sceneSuggestions, getAllSuggestionTimings, durationInSeconds, persistFile, currentProjectId, showToast]
+  );
+
+  const handleApplyAllSuggestions = useCallback(() => {
+    // Re-pace first: re-split any over-long beats at the current pace using the
+    // live transcript/duration. Prefer the original beats (rawSuggestionsRef);
+    // fall back to the current shot list (e.g. after a reload) — long cards
+    // still split, already-short ones pass through.
+    const source = rawSuggestionsRef.current.length > 0 ? rawSuggestionsRef.current : sceneSuggestions;
+    const paced = paceBeats(source, visualPace);
+    setSceneSuggestions(paced);
+    rawSuggestionsRef.current = source;
+
+    const timings = computeSceneTimings(paced, transcript, scriptText, durationInSeconds);
+
+    // Build the new slot list, then carry each already-assigned image onto the
+    // new slot that covers its old time span (so a freshly-split beat keeps its
+    // image on the first piece and exposes empty slots for the rest).
+    const newImages: ImageSegment[] = paced.map((s, i) => ({
+      src: "",
+      startTime: timings[i].startTime,
+      endTime: timings[i].endTime,
+      animation: s.suggestedAnimation,
+    }));
+    const newFiles: File[] = paced.map((s) => new File([], `placeholder-${s.id}.png`, { type: "image/png" }));
+
+    const used = new Set<number>();
+    images.forEach((oldImg, oi) => {
+      if (!oldImg.src) return; // skip empty placeholders
+      // Anchor on the image's start so a split beat keeps its image on the
+      // first new piece and leaves the rest empty to fill.
+      const anchor = oldImg.startTime + 0.001;
+      let target = newImages.findIndex(
+        (ns, ni) => !used.has(ni) && anchor >= ns.startTime && anchor < ns.endTime
+      );
+      if (target === -1) {
+        // anchor outside all slots — attach to the nearest free slot
+        target = newImages.findIndex((_, ni) => !used.has(ni));
+      }
+      if (target !== -1) {
+        used.add(target);
+        newImages[target] = { ...newImages[target], src: oldImg.src, animation: oldImg.animation };
+        newFiles[target] = imageFiles[oi];
+      }
+    });
+
+    setImages(newImages);
+    setImageFiles(newFiles);
+    newFiles.forEach((f, i) => persistFile(`image_${i}`, f));
+    // Drop any persisted files beyond the new length
+    if (currentProjectId) {
+      for (let i = newFiles.length; i < imageFiles.length; i++) {
+        deleteProjectFile(currentProjectId, `image_${i}`);
+      }
     }
 
-    // Existing segments — update timings in-place, preserving src (assigned images)
-    setImages((prev) => {
-      if (suggestionCount === prev.length) {
-        // Same count: just re-time each slot, keep src + animation if image assigned
-        return prev.map((img, i) => {
-          const { startTime, endTime } = timings[i];
-          return {
-            ...img,
-            startTime,
-            endTime,
-            animation: img.src ? img.animation : sceneSuggestions[i].suggestedAnimation,
-          };
-        });
-      }
-
-      // Different count: re-map what we can, add/trim as needed
-      const updated: ImageSegment[] = [];
-      for (let i = 0; i < suggestionCount; i++) {
-        const { startTime, endTime } = timings[i];
-        if (i < prev.length) {
-          // Existing slot — preserve src and user-chosen animation if image is assigned
-          updated.push({
-            ...prev[i],
-            startTime,
-            endTime,
-            animation: prev[i].src ? prev[i].animation : sceneSuggestions[i].suggestedAnimation,
-          });
-        } else {
-          // New slot — placeholder
-          updated.push({ src: "", startTime, endTime, animation: sceneSuggestions[i].suggestedAnimation });
-        }
-      }
-      return updated;
-    });
-
-    // Align imageFiles array to match new length
-    setImageFiles((prev) => {
-      if (suggestionCount <= prev.length) return prev.slice(0, suggestionCount);
-      const extra = sceneSuggestions.slice(prev.length).map((s) =>
-        new File([], `placeholder-${s.id}.png`, { type: "image/png" })
-      );
-      return [...prev, ...extra];
-    });
-  }, [images.length, sceneSuggestions, getAllSuggestionTimings, showToast]);
+    const filled = newImages.filter((img) => img.src).length;
+    showToast(
+      images.length === 0
+        ? `${newImages.length} slots added — drop your images into them below`
+        : `Re-synced to ${newImages.length} slots${filled < newImages.length ? ` — ${newImages.length - filled} new empty slot${newImages.length - filled === 1 ? "" : "s"} to fill` : ""}`,
+      "success"
+    );
+  }, [images, imageFiles, sceneSuggestions, visualPace, paceBeats, transcript, scriptText, durationInSeconds, persistFile, currentProjectId, showToast]);
 
   // ── Example project (lets a new user see a working composition in one click) ──
 
@@ -1728,6 +1786,7 @@ export const Editor: React.FC = () => {
           onApplySuggestion={handleApplySuggestion}
           onApplyAllSuggestions={handleApplyAllSuggestions}
           onDeleteSuggestion={handleDeleteSuggestion}
+          onPickFromLibrary={handlePickFromLibrary}
           onRefinePrompt={handleRefinePrompt}
           refiningPromptId={refiningPromptId}
           analysisProvider={analysisProvider}
@@ -1770,6 +1829,19 @@ export const Editor: React.FC = () => {
             );
           })()}
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setShowLibraryModal(true)}
+              title="Browse and manage the image library"
+              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+              </svg>
+              Library
+            </button>
             <button
               onClick={() => setShowThumbnailModal(true)}
               title="Create a cover thumbnail from a project image"
@@ -1826,6 +1898,13 @@ export const Editor: React.FC = () => {
           onToggleExpanded={handleToggleTimeline}
         />
       </main>
+
+      {/* Image library browser */}
+      <LibraryModal
+        open={showLibraryModal}
+        onClose={() => setShowLibraryModal(false)}
+        showToast={showToast}
+      />
 
       {/* Thumbnail generator */}
       <ThumbnailModal

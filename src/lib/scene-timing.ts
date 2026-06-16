@@ -133,16 +133,18 @@ export function computeSceneTimings(
 
 export interface PaceOptions {
   targetShot: number; // ideal seconds per shot
-  maxShot: number; // split any beat longer than this
   minShot: number; // never create a part shorter than this
 }
 
 export type PaceName = "chill" | "normal" | "fast";
 
+// A beat splits into round(duration / targetShot) shots, so it only splits
+// once it's meaningfully longer than the target (≈1.5× target). Larger targets
+// → fewer, longer shots.
 export const PACE_PRESETS: Record<PaceName, PaceOptions> = {
-  chill: { targetShot: 5.5, maxShot: 8, minShot: 2 },
-  normal: { targetShot: 4, maxShot: 6, minShot: 1.5 },
-  fast: { targetShot: 2.8, maxShot: 4, minShot: 1.2 },
+  chill: { targetShot: 9, minShot: 3 },
+  normal: { targetShot: 6, minShot: 2 },
+  fast: { targetShot: 4.5, minShot: 1.5 },
 };
 
 export const PACE_OPTIONS: { value: PaceName; label: string }[] = [
@@ -244,12 +246,11 @@ export function paceSuggestions<T extends SceneLike>(
     const dur = durations[i];
     const wordCount = norm(s.scriptSegment).split(/\s+/).filter(Boolean).length;
 
-    let k = 1;
-    if (dur > opts.maxShot && wordCount > 1) {
-      k = Math.max(2, Math.round(dur / opts.targetShot));
-      const maxByMin = Math.max(1, Math.floor(dur / opts.minShot));
-      k = Math.min(k, maxByMin, wordCount);
-    }
+    // Number of shots this beat earns at the chosen pace, capped so no shot
+    // falls below minShot and never more parts than words.
+    const maxByMin = Math.max(1, Math.floor(dur / opts.minShot));
+    let k = Math.round(dur / opts.targetShot);
+    k = Math.min(Math.max(1, k), maxByMin, Math.max(1, wordCount));
 
     if (k <= 1) {
       out.push({ source: s, scriptSegment: s.scriptSegment, wordRange: s.wordRange, part: 1, partCount: 1 });

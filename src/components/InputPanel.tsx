@@ -5,6 +5,8 @@ import { TranscriptWord, ImageSegment, IntroOutroSegment, IntroAnimationConfig, 
 import type { ProjectMeta } from "../lib/storage";
 import { realignWords } from "../lib/transcript";
 import { PACE_OPTIONS, PaceName } from "../lib/scene-timing";
+import type { LibraryImage } from "../lib/library-types";
+import { searchLibrary, libraryFileUrl } from "../lib/library-client";
 
 const SCRIPT_CHAR_LIMIT = 5000;
 const SPOKEN_WORDS_PER_SECOND = 2.5;
@@ -88,6 +90,7 @@ interface Props {
   onApplySuggestion: (suggestion: SceneSuggestion) => void;
   onApplyAllSuggestions: () => void;
   onDeleteSuggestion: (id: string) => void;
+  onPickFromLibrary: (scene: SceneSuggestion, image: LibraryImage) => void;
   onRefinePrompt: (id: string, guidance?: string) => void;
   refiningPromptId: string | null;
   analysisProvider: "groq" | "claude" | "rules" | "auto";
@@ -213,7 +216,7 @@ const PRIORITY_INDICATOR: Record<string, { dot: string; label: string }> = {
   optional: { dot: "bg-zinc-500", label: "Optional" },
 };
 
-function ShotListCard({ scene, index, onApply, onDelete, onRefine, isRefining }: { scene: SceneSuggestion; index: number; onApply: () => void; onDelete: () => void; onRefine: (guidance?: string) => void; isRefining: boolean }) {
+function ShotListCard({ scene, index, onApply, onDelete, onPickFromLibrary, onRefine, isRefining }: { scene: SceneSuggestion; index: number; onApply: () => void; onDelete: () => void; onPickFromLibrary: (image: LibraryImage) => void; onRefine: (guidance?: string) => void; isRefining: boolean }) {
   const [showScript, setShowScript] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -221,6 +224,17 @@ function ShotListCard({ scene, index, onApply, onDelete, onRefine, isRefining }:
   const [guidance, setGuidance] = useState("");
   const catColor = CATEGORY_COLORS[scene.category] ?? CATEGORY_COLORS["b-roll"];
   const priority = PRIORITY_INDICATOR[scene.priority] ?? PRIORITY_INDICATOR.recommended;
+
+  // Library matches for this scene — searched once when the card appears.
+  const [matches, setMatches] = useState<LibraryImage[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const query = [scene.description, scene.scriptSegment].filter(Boolean).join(" ");
+    searchLibrary({ text: query, category: scene.category }).then((res) => {
+      if (!cancelled) setMatches(res.slice(0, 6));
+    });
+    return () => { cancelled = true; };
+  }, [scene.description, scene.scriptSegment, scene.category]);
 
   const copyPrompt = useCallback(() => {
     navigator.clipboard.writeText(scene.imagePrompt).then(() => {
@@ -365,6 +379,30 @@ function ShotListCard({ scene, index, onApply, onDelete, onRefine, isRefining }:
           {scene.suggestedAnimation}
         </span>
       </div>
+
+      {/* Library matches — pick a reused image instead of sourcing fresh */}
+      {matches.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t border-zinc-700/40">
+          <div className="flex items-center gap-1 mb-1">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+            <span className="text-[9px] text-green-400 font-medium">From library ({matches.length})</span>
+          </div>
+          <div className="flex gap-1 overflow-x-auto pb-0.5">
+            {matches.map((img) => (
+              <button
+                key={img.id}
+                type="button"
+                onClick={() => onPickFromLibrary(img)}
+                title={`Use "${img.filename}" — ${img.tags.join(", ")}`}
+                className="flex-shrink-0 w-9 h-12 rounded overflow-hidden border border-zinc-700 hover:border-green-500 transition-colors"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -448,6 +486,7 @@ const InputPanelInner: React.FC<Props> = ({
   onApplySuggestion,
   onApplyAllSuggestions,
   onDeleteSuggestion,
+  onPickFromLibrary,
   onRefinePrompt,
   refiningPromptId,
   analysisProvider,
@@ -977,7 +1016,7 @@ const InputPanelInner: React.FC<Props> = ({
                         ? "bg-violet-600 text-white"
                         : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
                     }`}
-                    title={p.value === "chill" ? "~5s per shot" : p.value === "normal" ? "~4s per shot" : "~2.5s per shot"}
+                    title={p.value === "chill" ? "~9s per shot (fewer cuts)" : p.value === "normal" ? "~6s per shot" : "~4.5s per shot (more cuts)"}
                   >
                     {p.label}
                   </button>
@@ -1038,6 +1077,7 @@ const InputPanelInner: React.FC<Props> = ({
                       index={i}
                       onApply={() => onApplySuggestion(scene)}
                       onDelete={() => onDeleteSuggestion(scene.id)}
+                      onPickFromLibrary={(image) => onPickFromLibrary(scene, image)}
                       onRefine={(guidance) => onRefinePrompt(scene.id, guidance)}
                       isRefining={refiningPromptId === scene.id}
                     />

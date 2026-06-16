@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SceneSuggestion, ImageAnimation, SceneCategory } from "@/remotion/types";
+import { anthropicKey } from "@/lib/anthropic";
 
 // ── Shared prompt ──
 
@@ -77,8 +78,14 @@ function parseLLMResponse(
   text: string,
   totalWords: number,
 ): SceneSuggestion[] {
-  // Strip markdown fences if the model wrapped it anyway
-  const cleaned = text.replace(/^```(?:json)?\s*/m, "").replace(/\s*```$/m, "").trim();
+  // Models sometimes wrap the JSON in markdown fences or add a preamble /
+  // trailing note. Strip fences, then slice from the first bracket to the last
+  // matching one so surrounding prose can't break JSON.parse.
+  let cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const start = cleaned.search(/[[{]/);
+  const end = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
+  if (start >= 0 && end > start) cleaned = cleaned.slice(start, end + 1);
+
   const parsed = JSON.parse(cleaned);
   const rawScenes = Array.isArray(parsed) ? parsed : parsed.scenes;
   if (!Array.isArray(rawScenes)) throw new Error("No scenes array in response");
@@ -144,7 +151,7 @@ async function analyzeWithClaude(
   scriptText: string,
 ): Promise<{ scenes: SceneSuggestion[]; method: "claude" }> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic();
+  const client = new Anthropic({ apiKey: anthropicKey() });
 
   const words = scriptText.split(/\s+/).filter(Boolean);
 
@@ -355,7 +362,7 @@ export type AnalysisProvider = "groq" | "claude" | "rules" | "auto";
 function getAvailableProviders(): AnalysisProvider[] {
   const providers: AnalysisProvider[] = ["auto"];
   if (process.env.GROQ_API_KEY) providers.push("groq");
-  if (process.env.ANTHROPIC_API_KEY) providers.push("claude");
+  if (anthropicKey()) providers.push("claude");
   providers.push("rules");
   return providers;
 }
@@ -388,7 +395,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (provider === "claude" && process.env.ANTHROPIC_API_KEY) {
+  if (provider === "claude" && anthropicKey()) {
     try {
       const result = await analyzeWithClaude(scriptText);
       return NextResponse.json({ ...result, available });
@@ -413,7 +420,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (anthropicKey()) {
     try {
       const result = await analyzeWithClaude(scriptText);
       return NextResponse.json({ ...result, available });
