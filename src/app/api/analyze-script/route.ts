@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SceneSuggestion, ImageAnimation, SceneCategory } from "@/remotion/types";
 import { anthropicKey } from "@/lib/anthropic";
+import { recordUsage } from "@/lib/usage-storage";
 
 // ── Shared prompt ──
 
@@ -107,7 +108,7 @@ function parseLLMResponse(
 
 async function analyzeWithGroq(
   scriptText: string,
-): Promise<{ scenes: SceneSuggestion[]; method: "groq" }> {
+): Promise<{ scenes: SceneSuggestion[]; method: "groq"; tokens: number }> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("No GROQ_API_KEY");
 
@@ -142,14 +143,14 @@ async function analyzeWithGroq(
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("No content in Groq response");
 
-  return { scenes: parseLLMResponse(content, words.length), method: "groq" };
+  return { scenes: parseLLMResponse(content, words.length), method: "groq", tokens: data.usage?.total_tokens ?? 0 };
 }
 
 // ── Claude (paid, optional) ──
 
 async function analyzeWithClaude(
   scriptText: string,
-): Promise<{ scenes: SceneSuggestion[]; method: "claude" }> {
+): Promise<{ scenes: SceneSuggestion[]; method: "claude"; tokens: number }> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const client = new Anthropic({ apiKey: anthropicKey() });
 
@@ -175,6 +176,7 @@ async function analyzeWithClaude(
   return {
     scenes: parseLLMResponse(textBlock.text, words.length),
     method: "claude",
+    tokens: (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
   };
 }
 
@@ -370,24 +372,27 @@ function getAvailableProviders(): AnalysisProvider[] {
 // ── Route handler ──
 
 export async function POST(req: NextRequest) {
-  let body: { scriptText?: string; provider?: AnalysisProvider };
+  let body: { scriptText?: string; provider?: AnalysisProvider; projectId?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { scriptText, provider = "auto" } = body;
+  const { scriptText, provider = "auto", projectId } = body;
   if (!scriptText || typeof scriptText !== "string" || !scriptText.trim()) {
     return NextResponse.json({ error: "'scriptText' is required" }, { status: 400 });
   }
 
   const available = getAvailableProviders();
+  const track = (method: "groq" | "claude", tokens: number) =>
+    recordUsage(projectId, method, { tokens }).catch(() => {});
 
   // Direct provider request
   if (provider === "groq" && process.env.GROQ_API_KEY) {
     try {
       const result = await analyzeWithGroq(scriptText);
+      track("groq", result.tokens);
       return NextResponse.json({ ...result, available });
     } catch (err) {
       console.error("Groq analysis failed:", err);
@@ -398,6 +403,7 @@ export async function POST(req: NextRequest) {
   if (provider === "claude" && anthropicKey()) {
     try {
       const result = await analyzeWithClaude(scriptText);
+      track("claude", result.tokens);
       return NextResponse.json({ ...result, available });
     } catch (err) {
       console.error("Claude analysis failed:", err);
@@ -414,6 +420,7 @@ export async function POST(req: NextRequest) {
   if (process.env.GROQ_API_KEY) {
     try {
       const result = await analyzeWithGroq(scriptText);
+      track("groq", result.tokens);
       return NextResponse.json({ ...result, available });
     } catch (err) {
       console.error("Groq analysis failed:", err);
@@ -423,6 +430,7 @@ export async function POST(req: NextRequest) {
   if (anthropicKey()) {
     try {
       const result = await analyzeWithClaude(scriptText);
+      track("claude", result.tokens);
       return NextResponse.json({ ...result, available });
     } catch (err) {
       console.error("Claude analysis failed:", err);

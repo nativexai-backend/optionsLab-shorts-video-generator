@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropicKey } from "@/lib/anthropic";
+import { recordUsage } from "@/lib/usage-storage";
 
 // One-shot prompt refinement: takes a scene's existing image prompt and
 // rewrites it with a prompt-engineer persona. Each call should produce a
@@ -45,7 +46,7 @@ function buildUserMessage(body: {
   return lines.join("\n");
 }
 
-async function refineWithGroq(userMessage: string): Promise<string> {
+async function refineWithGroq(userMessage: string): Promise<{ text: string; tokens: number }> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("No GROQ_API_KEY");
 
@@ -74,10 +75,10 @@ async function refineWithGroq(userMessage: string): Promise<string> {
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("No content in Groq response");
-  return content;
+  return { text: content, tokens: data.usage?.total_tokens ?? 0 };
 }
 
-async function refineWithClaude(userMessage: string): Promise<string> {
+async function refineWithClaude(userMessage: string): Promise<{ text: string; tokens: number }> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const client = new Anthropic({ apiKey: anthropicKey() });
 
@@ -93,11 +94,14 @@ async function refineWithClaude(userMessage: string): Promise<string> {
   if (!textBlock || textBlock.type !== "text") {
     throw new Error("No text response from Claude");
   }
-  return textBlock.text.trim();
+  return {
+    text: textBlock.text.trim(),
+    tokens: (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
+  };
 }
 
 export async function POST(req: NextRequest) {
-  let body: { imagePrompt?: string; scriptSegment?: string; description?: string; category?: string; guidance?: string };
+  let body: { imagePrompt?: string; scriptSegment?: string; description?: string; category?: string; guidance?: string; provider?: string; projectId?: string };
   try {
     body = await req.json();
   } catch {
@@ -112,11 +116,42 @@ export async function POST(req: NextRequest) {
   }
 
   const userMessage = buildUserMessage(body as { imagePrompt: string; scriptSegment?: string; description?: string; category?: string; guidance?: string });
+  const projectId = body.projectId;
+  // "rules" has no prompt rewriter, so it behaves like auto here.
+  const provider = body.provider === "groq" || body.provider === "claude" ? body.provider : "auto";
+  const track = (method: "groq" | "claude", tokens: number) =>
+    recordUsage(projectId, method, { tokens }).catch(() => {});
 
+  // Explicit provider — use only that one.
+  if (provider === "groq") {
+    if (!process.env.GROQ_API_KEY) return NextResponse.json({ error: "GROQ_API_KEY not configured" }, { status: 503 });
+    try {
+      const r = await refineWithGroq(userMessage);
+      track("groq", r.tokens);
+      return NextResponse.json({ imagePrompt: r.text, method: "groq" });
+    } catch (err) {
+      console.error("Groq refine failed:", err);
+      return NextResponse.json({ error: "Groq refine failed" }, { status: 502 });
+    }
+  }
+  if (provider === "claude") {
+    if (!anthropicKey()) return NextResponse.json({ error: "Anthropic key not configured" }, { status: 503 });
+    try {
+      const r = await refineWithClaude(userMessage);
+      track("claude", r.tokens);
+      return NextResponse.json({ imagePrompt: r.text, method: "claude" });
+    } catch (err) {
+      console.error("Claude refine failed:", err);
+      return NextResponse.json({ error: "Claude refine failed" }, { status: 502 });
+    }
+  }
+
+  // Auto — Groq first, Claude fallback.
   if (process.env.GROQ_API_KEY) {
     try {
-      const imagePrompt = await refineWithGroq(userMessage);
-      return NextResponse.json({ imagePrompt, method: "groq" });
+      const r = await refineWithGroq(userMessage);
+      track("groq", r.tokens);
+      return NextResponse.json({ imagePrompt: r.text, method: "groq" });
     } catch (err) {
       console.error("Groq refine failed:", err);
     }
@@ -124,8 +159,9 @@ export async function POST(req: NextRequest) {
 
   if (anthropicKey()) {
     try {
-      const imagePrompt = await refineWithClaude(userMessage);
-      return NextResponse.json({ imagePrompt, method: "claude" });
+      const r = await refineWithClaude(userMessage);
+      track("claude", r.tokens);
+      return NextResponse.json({ imagePrompt: r.text, method: "claude" });
     } catch (err) {
       console.error("Claude refine failed:", err);
     }

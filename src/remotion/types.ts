@@ -33,11 +33,55 @@ export const IMAGE_ANIMATIONS: { value: ImageAnimation; label: string }[] = [
   { value: "static", label: "Static" },
 ];
 
+// ── Animated stock charts ──
+
+export interface Candle {
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+}
+
+export type ChartType = "candles" | "line" | "area";
+export type ChartTrend = "up" | "down" | "volatile" | "crashRecover";
+export type ChartRange = "1D" | "5D" | "1M" | "6M" | "1Y";
+
+export const CHART_TYPES: { value: ChartType; label: string }[] = [
+  { value: "candles", label: "Candles" },
+  { value: "line", label: "Line" },
+  { value: "area", label: "Area" },
+];
+
+export const CHART_RANGES: { value: ChartRange; label: string }[] = [
+  { value: "1D", label: "1 Day" },
+  { value: "5D", label: "5 Days" },
+  { value: "1M", label: "1 Month" },
+  { value: "6M", label: "6 Months" },
+  { value: "1Y", label: "1 Year" },
+];
+
+export interface ChartSpec {
+  ticker: string; // e.g. "NVDA"
+  companyName?: string; // e.g. "NVIDIA Corporation"
+  date?: string; // display date, e.g. "Jun 17, 2026"
+  candles: Candle[]; // embedded so server-side render needs no network
+  chartType: ChartType;
+  theme: "dark" | "light";
+  upColor: string;
+  downColor: string;
+  source: "real" | "synthetic";
+}
+
+export const DEFAULT_CHART_COLORS = { up: "#22C55E", down: "#EF4444" };
+
 export interface ImageSegment {
   src: string;
   startTime: number;
   endTime: number;
   animation: ImageAnimation;
+  // When present, this timeline segment renders an animated chart instead of an
+  // image. The candle data is embedded so it renders without a network call.
+  chart?: ChartSpec;
 }
 
 export type AvatarPosition =

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TTS_MODEL_ID, TTS_VOICE_SETTINGS } from "@/lib/voices";
 import { normalizeForTTS } from "@/lib/tts-text";
+import { recordUsage } from "@/lib/usage-storage";
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -11,14 +12,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { text?: string; voiceId?: string };
+  let body: { text?: string; voiceId?: string; projectId?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { text, voiceId } = body;
+  const { text, voiceId, projectId } = body;
   if (!text || !voiceId) {
     return NextResponse.json(
       { error: "Both 'text' and 'voiceId' are required" },
@@ -33,6 +34,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Money and numbers are expanded ("$5.08" → "five dollars and eight cents")
+  // so the voice reads them naturally; the stored script is untouched. This
+  // expanded text is what ElevenLabs bills on (≈1 credit per character).
+  const billedText = normalizeForTTS(text);
+
   try {
     const res = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
@@ -44,10 +50,7 @@ export async function POST(req: NextRequest) {
           Accept: "audio/mpeg",
         },
         body: JSON.stringify({
-          // Money and numbers are expanded ("$5.08" → "five dollars and
-          // eight cents", "102" → "one hundred and two") so the voice reads
-          // them naturally; the stored script is untouched.
-          text: normalizeForTTS(text),
+          text: billedText,
           model_id: TTS_MODEL_ID,
           voice_settings: TTS_VOICE_SETTINGS,
         }),
@@ -65,6 +68,9 @@ export async function POST(req: NextRequest) {
         { status: res.status }
       );
     }
+
+    // Record characters billed (≈ ElevenLabs credits) — non-fatal
+    recordUsage(projectId, "elevenlabs", { characters: billedText.length }).catch(() => {});
 
     const audioBuffer = await res.arrayBuffer();
     return new NextResponse(audioBuffer, {

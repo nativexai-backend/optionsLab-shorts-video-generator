@@ -8,6 +8,7 @@ import {
   useVideoConfig,
 } from "remotion";
 import { ImageSegment, ImageAnimation, VIDEO_WIDTH, VIDEO_HEIGHT } from "./types";
+import { AnimatedChart } from "./AnimatedChart";
 
 interface Props {
   images: ImageSegment[];
@@ -80,7 +81,7 @@ export const BackgroundSlideshow: React.FC<Props> = ({
   kenBurnsIntensity,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, width, height } = useVideoConfig();
   const currentTimeSec = frame / fps;
   const crossfadeDuration = 0.8; // longer crossfade for smoother transitions
 
@@ -93,7 +94,7 @@ export const BackgroundSlideshow: React.FC<Props> = ({
   return (
     <AbsoluteFill>
       {images.map((segment, index) => {
-        if (!segment.src) return null;
+        if (!segment.src && !segment.chart) return null;
         const segDuration = segment.endTime - segment.startTime;
         if (segDuration <= 0) return null;
 
@@ -125,6 +126,16 @@ export const BackgroundSlideshow: React.FC<Props> = ({
         }
 
         if (opacity <= 0) return null;
+
+        // Chart segments animate themselves (drawing in) — render the chart and
+        // skip the Ken Burns pan/zoom.
+        if (segment.chart) {
+          return (
+            <AbsoluteFill key={index} style={{ opacity }}>
+              <AnimatedChart spec={segment.chart} progress={segProgress} width={width} height={height} />
+            </AbsoluteFill>
+          );
+        }
 
         const animation = segment.animation || "kenBurns";
         const transform = getAnimationTransform(

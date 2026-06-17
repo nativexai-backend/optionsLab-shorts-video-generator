@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { execFile } from "child_process";
+import { recordUsage } from "@/lib/usage-storage";
 
 const WHISPER_BIN = "/Users/chokomilo/Library/Python/3.9/bin/whisper";
 
@@ -11,7 +12,7 @@ const WHISPER_BIN = "/Users/chokomilo/Library/Python/3.9/bin/whisper";
 async function transcribeWithGroq(
   audioBuffer: Buffer,
   fileName: string
-): Promise<{ word: string; start: number; end: number }[]> {
+): Promise<{ words: { word: string; start: number; end: number }[]; seconds: number }> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("No GROQ_API_KEY");
 
@@ -36,13 +37,17 @@ async function transcribeWithGroq(
 
   const data = await res.json();
 
-  // Groq returns { words: [{ word, start, end }] } at top level
+  // Groq returns { words: [{ word, start, end }], duration } at top level
   const rawWords = data.words ?? [];
-  return rawWords.map((w: { word: string; start: number; end: number }) => ({
+  const words = rawWords.map((w: { word: string; start: number; end: number }) => ({
     word: w.word.trim(),
     start: w.start,
     end: w.end,
   }));
+  const seconds = typeof data.duration === "number"
+    ? data.duration
+    : (words.length ? words[words.length - 1].end : 0);
+  return { words, seconds };
 }
 
 // ── Local Whisper fallback ──
@@ -103,6 +108,7 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const audioBlob = formData.get("audio") as File | null;
+    const projectId = (formData.get("projectId") as string) || undefined;
 
     if (!audioBlob) {
       return NextResponse.json({ error: "Audio file required" }, { status: 400 });
@@ -117,8 +123,10 @@ export async function POST(req: NextRequest) {
     // Try Groq Whisper first (faster + more accurate timestamps)
     if (process.env.GROQ_API_KEY) {
       try {
-        words = await transcribeWithGroq(audioBuffer, `audio${ext}`);
+        const result = await transcribeWithGroq(audioBuffer, `audio${ext}`);
+        words = result.words;
         method = "groq";
+        recordUsage(projectId, "whisper", { seconds: Math.round(result.seconds) }).catch(() => {});
       } catch (err) {
         console.error("Groq Whisper failed, falling back to local:", err);
         // Fall through to local

@@ -73,7 +73,7 @@ export interface SerializableState {
   musicVolume?: number;
   durationInSeconds: number;
   transcript: { word: string; start: number; end: number }[];
-  imageTiming: { startTime: number; endTime: number; animation?: string }[];
+  imageTiming: { startTime: number; endTime: number; animation?: string; chart?: import("../remotion/types").ChartSpec }[];
   intro: { startTime: number; duration: number; fadeDuration: number } | null;
   outro: { startTime: number; duration: number; fadeDuration: number } | null;
   introAnimation?: { enabled: boolean; style?: string; holdDuration: number; transitionDuration: number; backgroundColor: string };

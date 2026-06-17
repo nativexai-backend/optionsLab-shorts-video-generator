@@ -8,6 +8,8 @@ import { Timeline } from "./Timeline";
 import { RenderButton } from "./RenderButton";
 import { ThumbnailModal } from "./ThumbnailModal";
 import { LibraryModal } from "./LibraryModal";
+import { UsageModal } from "./UsageModal";
+import { ChartModal } from "./ChartModal";
 
 const PlayerPanel = lazy(() => import("./PlayerPanel").then(m => ({ default: m.PlayerPanel })));
 import {
@@ -24,6 +26,7 @@ import {
   DEFAULT_OUTRO_CARD,
   DEFAULT_MUSIC_VOLUME,
   SceneSuggestion,
+  ChartSpec,
 } from "../remotion/types";
 import { AVATAR_VOICE_MAP } from "../lib/voices";
 import {
@@ -340,6 +343,7 @@ export const Editor: React.FC = () => {
       startTime: img.startTime,
       endTime: img.endTime,
       animation: img.animation,
+      ...(img.chart ? { chart: img.chart } : {}),
     })),
     intro: intro ? { startTime: intro.startTime, duration: intro.duration, fadeDuration: intro.fadeDuration } : null,
     outro: outro ? { startTime: outro.startTime, duration: outro.duration, fadeDuration: outro.fadeDuration } : null,
@@ -422,13 +426,6 @@ export const Editor: React.FC = () => {
     const restoredIntro = await restoreFile("intro");
     const restoredOutro = await restoreFile("outro");
 
-    const imgCount = state?.imageTiming?.length ?? 0;
-    const restoredImages: File[] = [];
-    for (let i = 0; i < imgCount; i++) {
-      const f = await restoreFile(`image_${i}`);
-      if (f) restoredImages.push(f);
-    }
-
     if (restoredAudio) {
       setAudioFile(restoredAudio);
       setAudioSrc(URL.createObjectURL(restoredAudio));
@@ -437,17 +434,27 @@ export const Editor: React.FC = () => {
       setMusicFile(restoredMusic);
       setMusicSrc(URL.createObjectURL(restoredMusic));
     }
-    if (restoredImages.length > 0) {
-      setImageFiles(restoredImages);
-      const timing = state?.imageTiming ?? [];
-      setImages(
-        restoredImages.map((f, i) => ({
-          src: URL.createObjectURL(f),
-          startTime: timing[i]?.startTime ?? 0,
-          endTime: timing[i]?.endTime ?? 10,
-          animation: (timing[i] as { animation?: ImageAnimation })?.animation ?? "kenBurns",
-        }))
-      );
+
+    // Rebuild segments from the timing list — each is either an image (from a
+    // restored file) or an animated chart (spec embedded in the timing entry).
+    const timing = state?.imageTiming ?? [];
+    if (timing.length > 0) {
+      const files: File[] = [];
+      const segs: ImageSegment[] = [];
+      for (let i = 0; i < timing.length; i++) {
+        const t = (timing[i] ?? {}) as { startTime?: number; endTime?: number; animation?: ImageAnimation; chart?: ChartSpec };
+        const f = await restoreFile(`image_${i}`);
+        files.push(f ?? new File([], `placeholder-${i}.png`, { type: "image/png" }));
+        segs.push({
+          src: t.chart ? "" : (f && f.size > 0 ? URL.createObjectURL(f) : ""),
+          startTime: t.startTime ?? 0,
+          endTime: t.endTime ?? 10,
+          animation: t.animation ?? (t.chart ? "static" : "kenBurns"),
+          ...(t.chart ? { chart: t.chart } : {}),
+        });
+      }
+      setImageFiles(files);
+      setImages(segs);
     }
     if (restoredIntro && state?.intro) {
       setIntroFile(restoredIntro);
@@ -549,7 +556,17 @@ export const Editor: React.FC = () => {
   useEffect(() => {
     fetch("/api/health")
       .then((res) => res.json())
-      .then((data) => setTtsAvailable(!!data.elevenlabs))
+      .then((data) => {
+        setTtsAvailable(!!data.elevenlabs);
+        // Populate the provider dropdown up-front so Claude/Groq are selectable
+        // before the first analysis (otherwise only Auto/Rules show, and Auto
+        // always picks Groq — leaving Claude unreachable).
+        const providers: AnalysisProvider[] = ["auto"];
+        if (data.groq) providers.push("groq");
+        if (data.anthropic) providers.push("claude");
+        providers.push("rules");
+        setAvailableProviders(providers);
+      })
       .catch(() => {});
   }, []);
 
@@ -918,31 +935,41 @@ export const Editor: React.FC = () => {
     [durationInSeconds, imageFiles, persistFile, sceneSuggestions, currentProjectId]
   );
 
+  // Remove a whole block — its timeline slot AND its shot-list card — so the two
+  // stay aligned 1:1. Used by both the image-slot × and the shot-card ×.
   const handleRemoveImage = useCallback(
     (index: number) => {
-      // Snapshot for undo
-      const removedFile = imageFiles[index];
-      const removedImage = images[index];
+      // Snapshot for undo (URLs are kept valid until the toast expires)
       const prevFiles = [...imageFiles];
       const prevImages = [...images];
+      const prevSugs = [...sceneSuggestions];
 
-      const newFiles = imageFiles.filter((_, i) => i !== index);
-      setImageFiles(newFiles);
-      newFiles.forEach((f, i) => persistFile(`image_${i}`, f));
-      if (currentProjectId) deleteProjectFile(currentProjectId, `image_${newFiles.length}`);
-      setImages((prev) => prev.filter((_, i) => i !== index));
+      if (index < imageFiles.length) {
+        const newFiles = imageFiles.filter((_, i) => i !== index);
+        setImageFiles(newFiles);
+        setImages((prev) => prev.filter((_, i) => i !== index));
+        newFiles.forEach((f, i) => persistFile(`image_${i}`, f));
+        if (currentProjectId) deleteProjectFile(currentProjectId, `image_${newFiles.length}`);
+      }
+      if (index < sceneSuggestions.length) {
+        const newSugs = sceneSuggestions.filter((_, i) => i !== index);
+        setSceneSuggestions(newSugs);
+        rawSuggestionsRef.current = newSugs; // curated list — pace won't resurrect it
+      }
 
-      showToast("Image removed", "success", {
+      showToast("Block removed", "success", {
         label: "Undo",
         onClick: () => {
           setImageFiles(prevFiles);
           setImages(prevImages);
+          setSceneSuggestions(prevSugs);
+          rawSuggestionsRef.current = prevSugs;
           prevFiles.forEach((f, i) => persistFile(`image_${i}`, f));
           setToast(null);
         },
       });
     },
-    [imageFiles, images, persistFile, currentProjectId, showToast]
+    [imageFiles, images, sceneSuggestions, persistFile, currentProjectId, showToast]
   );
 
   const handleReplaceImage = useCallback(
@@ -988,8 +1015,16 @@ export const Editor: React.FC = () => {
         assignments.splice(toIndex, 0, moved);
         return prev.map((img, i) => ({ ...img, src: assignments[i].src, animation: assignments[i].animation }));
       });
+      // Move the shot card too, so card N keeps matching image N after reorder
+      if (fromIndex < sceneSuggestions.length && toIndex < sceneSuggestions.length) {
+        const nextSugs = [...sceneSuggestions];
+        const [moved] = nextSugs.splice(fromIndex, 1);
+        nextSugs.splice(toIndex, 0, moved);
+        setSceneSuggestions(nextSugs);
+        rawSuggestionsRef.current = nextSugs;
+      }
     },
-    [persistFile]
+    [persistFile, sceneSuggestions]
   );
 
   const handleRedistributeImages = useCallback(() => {
@@ -1065,7 +1100,7 @@ export const Editor: React.FC = () => {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId }),
+        body: JSON.stringify({ text, voiceId, projectId: currentProjectId }),
       });
 
       if (!res.ok) {
@@ -1108,6 +1143,7 @@ export const Editor: React.FC = () => {
       try {
         const formData = new FormData();
         formData.append("audio", file);
+        if (currentProjectId) formData.append("projectId", currentProjectId);
         const transcribeRes = await fetch("/api/transcribe", { method: "POST", body: formData });
         const transcribeText = await transcribeRes.text();
         if (transcribeRes.ok) {
@@ -1207,6 +1243,7 @@ export const Editor: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append("audio", audioFile);
+      if (currentProjectId) formData.append("projectId", currentProjectId);
       const res = await fetch("/api/transcribe", { method: "POST", body: formData });
       const text = await res.text();
       if (!res.ok) {
@@ -1223,7 +1260,7 @@ export const Editor: React.FC = () => {
     } finally {
       setIsTranscribing(false);
     }
-  }, [audioFile, showToast]);
+  }, [audioFile, showToast, currentProjectId]);
 
   const handleStyleChange = useCallback((newStyle: Partial<VideoStyle>) => {
     setStyle((prev) => ({ ...prev, ...newStyle }));
@@ -1361,7 +1398,7 @@ export const Editor: React.FC = () => {
       const res = await fetch("/api/analyze-script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scriptText, provider: analysisProvider }),
+        body: JSON.stringify({ scriptText, provider: analysisProvider, projectId: currentProjectId }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Analysis failed" }));
@@ -1379,7 +1416,7 @@ export const Editor: React.FC = () => {
     } finally {
       setIsAnalyzingScript(false);
     }
-  }, [scriptText, isAnalyzingScript, showToast, analysisProvider, visualPace, paceBeats]);
+  }, [scriptText, isAnalyzingScript, showToast, analysisProvider, visualPace, paceBeats, currentProjectId]);
 
   // Re-pace instantly when the pace control changes — re-split the stored raw
   // beats; fall back to a fresh analysis if none are cached (e.g. after reload).
@@ -1413,6 +1450,38 @@ export const Editor: React.FC = () => {
   // ── Thumbnail generator modal ──
   const [showThumbnailModal, setShowThumbnailModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
+  const [showUsageModal, setShowUsageModal] = useState(false);
+  const [showChartModal, setShowChartModal] = useState(false);
+
+  // Add an animated chart as a timeline segment — replaces the selected slot if
+  // one is selected, otherwise appends a new ~5s segment to fill on the timeline.
+  const handleAddChart = useCallback((chart: ChartSpec) => {
+    const placeholder = (i: number) => new File([], `chart-${i}.png`, { type: "image/png" });
+    if (selectedImageIndex != null && selectedImageIndex < images.length) {
+      const idx = selectedImageIndex;
+      setImages((prev) => prev.map((img, i) => {
+        if (i !== idx) return img;
+        if (img.src) URL.revokeObjectURL(img.src);
+        return { ...img, src: "", animation: "static", chart };
+      }));
+      setImageFiles((prev) => {
+        const next = [...prev];
+        next[idx] = placeholder(idx);
+        persistFile(`image_${idx}`, next[idx]);
+        return next;
+      });
+    } else {
+      const segDur = 5;
+      const lastEnd = images.length > 0 ? Math.max(...images.map((i) => i.endTime)) : 0;
+      const start = Math.min(lastEnd, Math.max(0, durationInSeconds - segDur));
+      setImages((prev) => [...prev, { src: "", startTime: start, endTime: start + segDur, animation: "static", chart }]);
+      setImageFiles((prev) => {
+        const next = [...prev, placeholder(prev.length)];
+        persistFile(`image_${next.length - 1}`, next[next.length - 1]);
+        return next;
+      });
+    }
+  }, [selectedImageIndex, images, durationInSeconds, persistFile]);
 
   // ── Per-scene prompt refinement (one new variation per click, optionally steered) ──
   const [refiningPromptId, setRefiningPromptId] = useState<string | null>(null);
@@ -1431,6 +1500,8 @@ export const Editor: React.FC = () => {
           description: suggestion.description,
           category: suggestion.category,
           guidance,
+          provider: analysisProvider,
+          projectId: currentProjectId,
         }),
       });
       if (!res.ok) {
@@ -1448,7 +1519,7 @@ export const Editor: React.FC = () => {
     } finally {
       setRefiningPromptId(null);
     }
-  }, [sceneSuggestions, refiningPromptId, showToast]);
+  }, [sceneSuggestions, refiningPromptId, showToast, analysisProvider, currentProjectId]);
 
   const handleConfirmReanalyze = useCallback(() => {
     setShowReanalyzeConfirm(false);
@@ -1462,25 +1533,9 @@ export const Editor: React.FC = () => {
   const handleDeleteSuggestion = useCallback((id: string) => {
     const idx = sceneSuggestions.findIndex((s) => s.id === id);
     if (idx === -1) return;
-
-    // The curated list becomes the new baseline, so changing pace afterwards
-    // won't resurrect the deleted block.
-    const updated = sceneSuggestions.filter((_, i) => i !== idx);
-    setSceneSuggestions(updated);
-    rawSuggestionsRef.current = updated;
-
-    // Remove the timeline slot at the same position, if one exists (slot
-    // numbers track shot-card numbers 1:1).
-    if (idx < imageFiles.length) {
-      const removed = images[idx];
-      if (removed?.src) URL.revokeObjectURL(removed.src);
-      const newFiles = imageFiles.filter((_, i) => i !== idx);
-      setImageFiles(newFiles);
-      newFiles.forEach((f, i) => persistFile(`image_${i}`, f));
-      if (currentProjectId) deleteProjectFile(currentProjectId, `image_${newFiles.length}`);
-      setImages((prev) => prev.filter((_, i) => i !== idx));
-    }
-  }, [sceneSuggestions, images, imageFiles, persistFile, currentProjectId]);
+    // Same block-removal as the image-slot × — keeps shot list and timeline aligned.
+    handleRemoveImage(idx);
+  }, [sceneSuggestions, handleRemoveImage]);
 
   // Scene timings are computed for the WHOLE shot list at once (sequential
   // transcript matching — see src/lib/scene-timing.ts) so repeated phrases
@@ -1830,6 +1885,29 @@ export const Editor: React.FC = () => {
           })()}
           <div className="ml-auto flex items-center gap-2">
             <button
+              onClick={() => setShowChartModal(true)}
+              title="Add an animated stock chart"
+              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 3v18h18" />
+                <path d="M7 14l3-3 3 3 4-5" />
+              </svg>
+              Chart
+            </button>
+            <button
+              onClick={() => setShowUsageModal(true)}
+              title="View API usage per project"
+              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="20" x2="18" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
+              Usage
+            </button>
+            <button
               onClick={() => setShowLibraryModal(true)}
               title="Browse and manage the image library"
               className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
@@ -1898,6 +1976,17 @@ export const Editor: React.FC = () => {
           onToggleExpanded={handleToggleTimeline}
         />
       </main>
+
+      {/* Stock chart maker */}
+      <ChartModal
+        open={showChartModal}
+        onClose={() => setShowChartModal(false)}
+        onAddChart={handleAddChart}
+        showToast={showToast}
+      />
+
+      {/* API usage */}
+      <UsageModal open={showUsageModal} onClose={() => setShowUsageModal(false)} />
 
       {/* Image library browser */}
       <LibraryModal

@@ -992,7 +992,7 @@ const InputPanelInner: React.FC<Props> = ({
                 value={analysisProvider}
                 onChange={(e) => onAnalysisProviderChange(e.target.value as AnalysisProvider)}
                 className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 focus-visible:ring-2 focus-visible:ring-violet-500"
-                title="AI provider"
+                title="AI provider — used for both Suggest Visuals and ✦ Refine"
               >
                 {availableProviders.map((p) => (
                   <option key={p} value={p}>
@@ -2158,7 +2158,8 @@ function DraggableImageCard({
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isPlaceholder = !image?.src;
+  const isChart = !!image?.chart;
+  const isPlaceholder = !image?.src && !isChart;
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
     e.dataTransfer.effectAllowed = "move";
@@ -2235,7 +2236,11 @@ function DraggableImageCard({
             ⠿
           </span>
         )}
-        {isPlaceholder ? (
+        {isChart ? (
+          <div className="w-9 h-9 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-emerald-400" title={`${image?.chart?.ticker} chart`}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 4-5" /></svg>
+          </div>
+        ) : isPlaceholder ? (
           <div className="w-9 h-9 rounded bg-zinc-800 border border-dashed border-zinc-600 flex items-center justify-center" title="Click or drop image">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-500"><path d="M8 3v10M3 8h10" /></svg>
           </div>
@@ -2253,7 +2258,11 @@ function DraggableImageCard({
         <span className={`w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
           {index + 1}
         </span>
-        {isPlaceholder ? (
+        {isChart ? (
+          <span className="text-[11px] text-zinc-300 truncate">
+            {image?.chart?.ticker} chart <span className="text-zinc-500">· animated</span>
+          </span>
+        ) : isPlaceholder ? (
           <span className="text-[10px] text-zinc-500 truncate italic" title={file.name.replace(/^placeholder-/, "").replace(/\.png$/, "")}>
             Drop image here
           </span>

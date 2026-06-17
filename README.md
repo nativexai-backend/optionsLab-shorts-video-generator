@@ -15,7 +15,9 @@ Built with **Next.js 16** + **Remotion 4** (React-based video rendering).
 - **Word-synced captions** — generated audio is transcribed with word timestamps (Groq Whisper, local Whisper fallback). Karaoke-style highlighting, editable text with automatic timing re-alignment, full style controls (font, position, colors).
 - **AI shot list** — the script is broken into beats, each with a category, suggested animation, and a production-ready image prompt (bright, modern editorial photography house style; prompts double as stock-search queries). A **Visual pace** control (Chill / Normal / Fast) auto-splits long beats into evenly-paced shots; per-scene **Refine** rewrites a prompt (optionally steered), and a per-card delete removes a block from the shot list and timeline at once. Providers: Groq → Claude → rule-based fallback.
 - **Smart image library** — images you drop into scenes are saved and auto-tagged (filename + scene context), then surfaced as thumbnail matches on future shot cards so recurring subjects (a ticker logo, a CEO portrait) are reused instead of re-sourced. Browse/search/edit-tags in the Library modal.
-- **Timeline editor** — live Remotion preview, audio waveform, draggable segments, per-image pan/zoom animations (Ken Burns, pans, zooms), drag-to-reorder slots, undo/redo (⌘Z / ⌘⇧Z).
+- **Animated stock charts** — branded, on-brand charts that *draw in as the video plays* (replacing off-brand TradingView screenshots). Real OHLC data when a provider key is set, or a realistic synthetic series otherwise. Minimal card design: logo badge + ticker/company + date, price + change, faint-grid line/candles/area.
+- **API usage tracking** — per-project, per-API consumption (ElevenLabs characters ≈ credits, Groq/Claude tokens, Whisper seconds) with an overall view, so you can see where spend goes. Top-bar **Usage** button.
+- **Timeline editor** — live Remotion preview, audio waveform, draggable segments, per-image pan/zoom animations (Ken Burns, pans, zooms), drag-to-reorder slots that keep the shot list in lockstep, undo/redo (⌘Z / ⌘⇧Z).
 - **Branding** — audio-reactive avatar overlay with four visualizer styles (Pulse Rings, Liquid Wave, Bars, Minimal Glow), animated intro (circle reveal / slide down), OptionsLab outro card with disclaimer, persistent "OptionsLab App" badge.
 - **Background music** — optional bed that loops under the voiceover and fades out at the end.
 - **Export** — server-side render to H.264 MP4 at 720×1280 or 1080×1920, with real progress reporting; renders run as jobs and survive a page reload.
@@ -37,6 +39,7 @@ npm run dev                  # http://localhost:3000
 | `ELEVENLABS_API_KEY` | **Yes** (for voiceover) | TTS generation + avatar voice previews |
 | `GROQ_API_KEY` | Recommended | Whisper transcription (captions) + script analysis + prompt refinement |
 | `ANTHROPIC_API_KEY` (or `ANTHROPIC`) | Optional | Claude for script analysis / prompt refinement (either name is accepted) |
+| `TWELVE_DATA_API_KEY` | Optional | Real OHLC data for stock charts (free tier at twelvedata.com). Without it, charts use a realistic synthetic series. |
 | `DATA_DIR` | Optional | Overrides where project data is stored (default `data/projects`) |
 | `LIBRARY_DIR` | Optional | Overrides the image-library location (default `data/library`) |
 
@@ -97,6 +100,20 @@ A reusable, self-building asset library so recurring subjects don't get re-sourc
 
 Phase 2 (not built): vision auto-tagging, embedding-based matching if keywords prove insufficient, cloud storage if multi-machine.
 
+## Animated stock charts
+
+On-brand charts that draw in as the video plays, instead of pasting TradingView screenshots (which drag in their own chrome/watermark/theme).
+
+- **Data (`/api/chart-data`).** Fetches real OHLC from **Twelve Data** when `TWELVE_DATA_API_KEY` is set; otherwise generates a **realistic synthetic series** — the close tracks a deterministic trend line with bounded, volatility-clustered wiggle, so the direction is reliable (up / down / volatile / crash→recover) while still looking like real price action. Candle data is **embedded in the chart segment**, so the video render never hits the network.
+- **Rendering.** A timeline segment is either an image **or** a chart (`ImageSegment.chart`). `AnimatedChart.tsx` is a pure SVG component driven by a `progress` (0..1) prop — *no Remotion hooks* — so the **same component powers both the live video and the modal's rAF preview**. It draws in left-to-right; charts skip the Ken Burns pan/zoom. Minimal card layout: logo badge (ticker monogram) + ticker/company + date, price + change, faint grid, line/candles/area.
+- **Creating one.** Top-bar **Chart** button → modal: ticker, company, range, trend (shapes the synthetic fallback), style, theme — with a live animated preview. *Add to timeline* replaces the selected slot or appends a new segment. Charts persist with the project (spec embedded in `imageTiming`), so they re-render identically on reload and in the exported MP4.
+
+## API usage
+
+The top-bar **Usage** button shows per-project, per-API consumption plus overall totals: ElevenLabs **characters** (≈ credits), Groq / Claude **tokens**, Whisper **seconds**. Each API route records its real reported usage against the current project (`data/usage.json`, gitignored). Tracking starts when the feature is added — earlier usage isn't retroactive.
+
+The **AI provider** dropdown in ② Visuals (Auto / Groq / Claude / Rules) applies to both *Suggest Visuals* and *✦ Refine*. It's populated from `/api/health` on load, so Claude is selectable up front when its key is configured. Note: **Auto** always tries Groq first (free), so Claude only runs when explicitly selected or as a fallback.
+
 ## Architecture
 
 ```
@@ -111,6 +128,8 @@ src/
 │       ├── refine-prompt/        # one-shot image-prompt rewrite, optionally steered
 │       ├── render/               # job-based Remotion render (POST start, GET poll/download)
 │       ├── library/              # image library: search/add, [id] PATCH/DELETE, [id]/file
+│       ├── chart-data/           # OHLC from Twelve Data, or synthetic trend-shaped series
+│       ├── usage/                # per-project / per-API usage aggregation
 │       ├── projects/             # project index + state + file sync (disk-backed)
 │       └── health/               # which API keys are configured
 ├── components/
@@ -120,15 +139,18 @@ src/
 │   ├── Timeline*.tsx             # ruler, waveform, image track, playhead
 │   ├── RenderButton.tsx          # export modal + job polling
 │   ├── ThumbnailModal.tsx        # canvas thumbnail generator
-│   └── LibraryModal.tsx          # image library browser + tag editor
+│   ├── LibraryModal.tsx          # image library browser + tag editor
+│   ├── ChartModal.tsx            # stock-chart maker + live animated preview
+│   └── UsageModal.tsx            # API usage breakdown
 ├── remotion/
 │   ├── VideoComposition.tsx      # composition root (all layers)
-│   ├── BackgroundSlideshow.tsx   # images + pan/zoom animations
+│   ├── BackgroundSlideshow.tsx   # images + pan/zoom; renders charts for chart segments
+│   ├── AnimatedChart.tsx         # branded draw-in stock chart (pure SVG, progress-driven)
 │   ├── CaptionOverlay.tsx        # word-synced captions
 │   ├── VoiceVisualizer.tsx       # shared audio-reactive avatar (4 styles)
 │   ├── AnimatedIntro/Outro.tsx   # intro reveal, outro card
 │   ├── BrandingBadge.tsx         # persistent corner badge
-│   └── types.ts                  # dimensions, schemas, defaults, presets
+│   └── types.ts                  # dimensions, schemas, defaults, presets, ChartSpec
 └── lib/
     ├── storage.ts                # client persistence (localStorage + IndexedDB) + server sync
     ├── server-storage.ts         # disk persistence (data/projects), serialized index writes
@@ -138,6 +160,7 @@ src/
     ├── library-storage.ts        # disk persistence for the image library
     ├── library-types.ts          # library records + relevance matching         [tested]
     ├── library-client.ts         # client wrappers for the library API
+    ├── usage-storage.ts          # per-project / per-API usage recording
     ├── anthropic.ts              # resolves ANTHROPIC_API_KEY or ANTHROPIC
     └── voices.ts                 # avatar → ElevenLabs voice map + TTS model
 ```
@@ -172,3 +195,5 @@ Notes:
 - **Vision auto-tagging** — send captured images to a vision model to tag people/logos/objects automatically, on top of the current filename + scene-context tagging.
 - **Semantic matching** — embedding-based library search if keyword matching proves insufficient.
 - **Cheaper/faster TTS default** — option to switch the voice model to `eleven_flash_v2_5` (≈half the credits).
+- **Real company logos on charts** — replace the ticker-monogram badge with actual brand logos (logo source TBD).
+- **Per-scene "Make chart"** — a chart button on chart-category shot cards, prefilled from the detected ticker/trend.
