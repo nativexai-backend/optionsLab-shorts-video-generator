@@ -1073,6 +1073,33 @@ export const Editor: React.FC = () => {
     []
   );
 
+  // Move a clip to another track (z-order layer). Tracks are derived from the
+  // data, so dropping the last clip off a track makes that track disappear.
+  // Overlay tracks get a default picture-in-picture box so the clip is visible
+  // on top of the base (it can then be repositioned in the preview); track 0
+  // returns the clip to full-frame.
+  const handleImageTrackChange = useCallback(
+    (index: number, track: number) => {
+      setImages((prev) =>
+        prev.map((img, i) => {
+          if (i !== index) return img;
+          if (track <= 0) {
+            const next = { ...img };
+            delete next.transform;
+            next.track = undefined;
+            return next;
+          }
+          return {
+            ...img,
+            track,
+            transform: img.transform ?? { x: 0.55, y: 0.06, width: 0.4, height: 0.24 },
+          };
+        })
+      );
+    },
+    []
+  );
+
   const handleImageTimingBatchChange = useCallback(
     (index: number, startTime: number, endTime: number) => {
       setImages((prev) =>
@@ -1992,6 +2019,7 @@ export const Editor: React.FC = () => {
           selectedImageIndex={selectedImageIndex}
           onSelectImage={handleSelectImage}
           onImageTimingChange={handleImageTimingBatchChange}
+          onImageTrackChange={handleImageTrackChange}
           intro={intro}
           outro={outro}
           expanded={timelineExpanded}

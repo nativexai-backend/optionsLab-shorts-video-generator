@@ -18,6 +18,7 @@ interface Props {
   selectedImageIndex: number | null;
   onSelectImage: (index: number) => void;
   onImageTimingChange: (index: number, startTime: number, endTime: number) => void;
+  onImageTrackChange: (index: number, track: number) => void;
   intro: IntroOutroSegment | null;
   outro: IntroOutroSegment | null;
   expanded: boolean;
@@ -26,7 +27,8 @@ interface Props {
 
 const MAX_PX_PER_SEC = 300;
 const GUTTER_WIDTH = 56;
-const TRACK_HEIGHT = 40;
+const TRACK_HEIGHT = 40; // height of one image-track row
+const ADD_TRACK_HEIGHT = 22; // the "+ drop here for a new track" row
 const WAVEFORM_HEIGHT = 32;
 
 function formatTime(s: number): string {
@@ -43,6 +45,7 @@ export const Timeline: React.FC<Props> = ({
   selectedImageIndex,
   onSelectImage,
   onImageTimingChange,
+  onImageTrackChange,
   intro,
   outro,
   expanded,
@@ -90,7 +93,10 @@ export const Timeline: React.FC<Props> = ({
     return () => clearInterval(interval);
   }, [playerRef, expanded]);
 
-  const totalHeight = 26 + WAVEFORM_HEIGHT + TRACK_HEIGHT + 8; // ruler + waveform + image track + padding
+  // Tracks are derived from the data: the highest track index in use, + 1.
+  const trackCount = Math.max(1, ...images.map((img) => (img.track ?? 0) + 1));
+  const tracksAreaHeight = trackCount * TRACK_HEIGHT + ADD_TRACK_HEIGHT;
+  const totalHeight = 26 + WAVEFORM_HEIGHT + tracksAreaHeight + 8; // ruler + waveform + image tracks + padding
 
   if (!expanded) {
     return (
@@ -146,8 +152,13 @@ export const Timeline: React.FC<Props> = ({
           <div className="flex items-center justify-end pr-2" style={{ height: WAVEFORM_HEIGHT }}>
             <span className="text-[10px] text-zinc-400">Audio</span>
           </div>
-          <div className="flex items-center justify-end pr-2" style={{ height: TRACK_HEIGHT }}>
-            <span className="text-[10px] text-zinc-400">Images</span>
+          {Array.from({ length: trackCount }, (_, i) => (
+            <div key={i} className="flex items-center justify-end pr-2" style={{ height: TRACK_HEIGHT }}>
+              <span className="text-[10px] text-zinc-400">{trackCount === 1 ? "Images" : `Track ${i + 1}`}</span>
+            </div>
+          ))}
+          <div className="flex items-center justify-end pr-2 text-zinc-600" style={{ height: ADD_TRACK_HEIGHT }}>
+            <span className="text-[9px]">+ layer</span>
           </div>
         </div>
 
@@ -173,7 +184,7 @@ export const Timeline: React.FC<Props> = ({
               />
             </div>
 
-            {/* Image track */}
+            {/* Image tracks (one row per layer + an "add track" drop row) */}
             <TimelineImageTrack
               images={images}
               durationInSeconds={durationInSeconds}
@@ -181,7 +192,10 @@ export const Timeline: React.FC<Props> = ({
               selectedIndex={selectedImageIndex}
               onSelect={onSelectImage}
               onTimingChange={onImageTimingChange}
-              height={TRACK_HEIGHT}
+              onTrackChange={onImageTrackChange}
+              trackCount={trackCount}
+              rowHeight={TRACK_HEIGHT}
+              addRowHeight={ADD_TRACK_HEIGHT}
             />
 
             {/* Intro/Outro markers */}
@@ -191,7 +205,7 @@ export const Timeline: React.FC<Props> = ({
                 style={{
                   left: intro.startTime * pxPerSecond,
                   width: intro.duration * pxPerSecond,
-                  height: 26 + WAVEFORM_HEIGHT + TRACK_HEIGHT,
+                  height: 26 + WAVEFORM_HEIGHT + tracksAreaHeight,
                 }}
               >
                 <div className="h-full border-l-2 border-r border-dashed border-emerald-500/60 bg-emerald-500/10">
@@ -205,7 +219,7 @@ export const Timeline: React.FC<Props> = ({
                 style={{
                   left: outro.startTime * pxPerSecond,
                   width: outro.duration * pxPerSecond,
-                  height: 26 + WAVEFORM_HEIGHT + TRACK_HEIGHT,
+                  height: 26 + WAVEFORM_HEIGHT + tracksAreaHeight,
                 }}
               >
                 <div className="h-full border-l border-r-2 border-dashed border-amber-500/60 bg-amber-500/10">
@@ -218,7 +232,7 @@ export const Timeline: React.FC<Props> = ({
             <TimelinePlayhead
               playerRef={playerRef}
               pxPerSecond={pxPerSecond}
-              height={26 + WAVEFORM_HEIGHT + TRACK_HEIGHT}
+              height={26 + WAVEFORM_HEIGHT + tracksAreaHeight}
               scrollContainerRef={scrollRef}
             />
           </div>

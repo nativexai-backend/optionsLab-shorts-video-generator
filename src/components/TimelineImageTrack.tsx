@@ -15,7 +15,10 @@ interface Props {
   selectedIndex: number | null;
   onSelect: (index: number) => void;
   onTimingChange: (index: number, startTime: number, endTime: number) => void;
-  height: number;
+  onTrackChange: (index: number, track: number) => void;
+  trackCount: number;
+  rowHeight: number;
+  addRowHeight: number;
 }
 
 type DragMode = "move" | "resize-left" | "resize-right";
@@ -26,6 +29,7 @@ interface DragState {
   startX: number;
   origStart: number;
   origEnd: number;
+  origTrack: number;
 }
 
 interface SnapResult {
@@ -60,14 +64,21 @@ export const TimelineImageTrack: React.FC<Props> = ({
   selectedIndex,
   onSelect,
   onTimingChange,
-  height,
+  onTrackChange,
+  trackCount,
+  rowHeight,
+  addRowHeight,
 }) => {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [previewImages, setPreviewImages] = useState<ImageSegment[] | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
+  const [previewTrack, setPreviewTrack] = useState<number | null>(null); // row the dragged clip hovers
   const dragRef = useRef<DragState | null>(null);
   const previewRef = useRef<ImageSegment[] | null>(null);
+  const previewTrackRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
+  const height = trackCount * rowHeight + addRowHeight;
   const totalWidth = durationInSeconds * pxPerSecond;
   const snapThreshold = 10 / pxPerSecond; // 10px in seconds
 
@@ -99,11 +110,14 @@ export const TimelineImageTrack: React.FC<Props> = ({
         startX: e.clientX,
         origStart: img.startTime,
         origEnd: img.endTime,
+        origTrack: img.track ?? 0,
       };
       setDragState(state);
       dragRef.current = state;
       setPreviewImages([...images]);
       previewRef.current = [...images];
+      setPreviewTrack(img.track ?? 0);
+      previewTrackRef.current = img.track ?? 0;
       onSelect(index);
     },
     [images, onSelect]
@@ -117,6 +131,17 @@ export const TimelineImageTrack: React.FC<Props> = ({
       const deltaX = e.clientX - ds.startX;
       const deltaSec = deltaX / pxPerSecond;
       const targets = getSnapTargets(ds.index);
+
+      // Vertical: which row is the pointer over? (only when moving, not resizing)
+      if (ds.mode === "move" && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const row = Math.floor((e.clientY - rect.top) / rowHeight);
+        const tgt = Math.max(0, Math.min(trackCount, row)); // trackCount = the "new track" add row
+        if (tgt !== previewTrackRef.current) {
+          setPreviewTrack(tgt);
+          previewTrackRef.current = tgt;
+        }
+      }
 
       let newStart = ds.origStart;
       let newEnd = ds.origEnd;
@@ -175,7 +200,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
       setPreviewImages(updated);
       previewRef.current = updated;
     },
-    [pxPerSecond, durationInSeconds, getSnapTargets, snapThreshold, images]
+    [pxPerSecond, durationInSeconds, getSnapTargets, snapThreshold, images, rowHeight, trackCount]
   );
 
   const handlePointerUp = useCallback(() => {
@@ -184,13 +209,19 @@ export const TimelineImageTrack: React.FC<Props> = ({
     if (ds && preview) {
       const img = preview[ds.index];
       onTimingChange(ds.index, img.startTime, img.endTime);
+      const tgt = previewTrackRef.current;
+      if (ds.mode === "move" && tgt != null && tgt !== ds.origTrack) {
+        onTrackChange(ds.index, tgt);
+      }
     }
     setDragState(null);
     dragRef.current = null;
     setPreviewImages(null);
     previewRef.current = null;
+    setPreviewTrack(null);
+    previewTrackRef.current = null;
     setSnapLine(null);
-  }, [onTimingChange]);
+  }, [onTimingChange, onTrackChange]);
 
   // Attach global listeners during drag
   useEffect(() => {
@@ -204,29 +235,55 @@ export const TimelineImageTrack: React.FC<Props> = ({
   }, [dragState, handlePointerMove, handlePointerUp]);
 
   const displayImages = previewImages ?? images;
+  const isDragging = dragState !== null;
 
   return (
     <div
+      ref={containerRef}
       className="relative flex-shrink-0"
       style={{ width: totalWidth, height }}
     >
+      {/* Track row separators */}
+      {Array.from({ length: trackCount }, (_, r) => (
+        <div
+          key={`row-${r}`}
+          className={`absolute left-0 right-0 pointer-events-none ${r > 0 ? "border-t border-zinc-800/60" : ""}`}
+          style={{ top: r * rowHeight, height: rowHeight }}
+        />
+      ))}
+      {/* "Drag here for a new layer" drop row */}
+      <div
+        className={`absolute left-0 right-0 border-t border-dashed flex items-center justify-center text-[10px] pointer-events-none transition-colors ${
+          previewTrack === trackCount
+            ? "border-violet-500 bg-violet-500/10 text-violet-300"
+            : "border-zinc-800 text-zinc-700"
+        }`}
+        style={{ top: trackCount * rowHeight, height: addRowHeight }}
+      >
+        {previewTrack === trackCount ? "Drop to create a new layer" : isDragging ? "drag here for a new layer" : ""}
+      </div>
+
       {displayImages.map((img, i) => {
         const left = img.startTime * pxPerSecond;
         const width = (img.endTime - img.startTime) * pxPerSecond;
         const isSelected = i === selectedIndex;
         const color = TIMELINE_BLOCK_COLORS[i % TIMELINE_BLOCK_COLORS.length];
+        const thisDragging = dragState?.index === i && dragState.mode === "move";
+        const tr = thisDragging && previewTrack != null ? previewTrack : (img.track ?? 0);
 
         return (
           <div
             key={i}
-            className={`absolute top-1 bottom-1 rounded-md cursor-grab active:cursor-grabbing select-none flex items-center justify-center ${
-              isSelected ? "ring-2 ring-white shadow-[0_0_8px_rgba(255,255,255,0.3)]" : ""
+            className={`absolute rounded-md cursor-grab active:cursor-grabbing select-none flex items-center justify-center ${
+              isSelected ? "ring-2 ring-white shadow-[0_0_8px_rgba(255,255,255,0.3)] z-10" : ""
             }`}
             style={{
               left,
+              top: tr * rowHeight + 2,
+              height: rowHeight - 4,
               width: Math.max(width, 4),
               backgroundColor: color,
-              opacity: 0.85,
+              opacity: thisDragging ? 0.95 : 0.85,
             }}
             onClick={(e) => {
               e.stopPropagation();
