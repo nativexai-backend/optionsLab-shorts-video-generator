@@ -33,6 +33,33 @@ function loadStoredJob(): StoredJob | null {
   }
 }
 
+// A soft two-note "ding-dong" chime when an export finishes — generated with
+// the Web Audio API so there's no asset to ship. Non-fatal if audio is blocked.
+function playExportChime() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    void ctx.resume();
+    const now = ctx.currentTime;
+    for (const { f, t } of [{ f: 1046.5, t: 0 }, { f: 1396.9, t: 0.16 }]) { // C6 → F6
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.0001, now + t);
+      gain.gain.exponentialRampToValueAtTime(0.22, now + t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.4);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + t);
+      osc.stop(now + t + 0.45);
+    }
+    setTimeout(() => ctx.close().catch(() => {}), 900);
+  } catch {
+    // audio unavailable — ignore
+  }
+}
+
 const RenderButtonInner: React.FC<Props> = ({
   videoProps,
   audioFile,
@@ -78,6 +105,7 @@ const RenderButtonInner: React.FC<Props> = ({
       a.download = `${j.name}.mp4`;
       a.click();
       URL.revokeObjectURL(url);
+      playExportChime();
       showToast("Video exported successfully!", "success");
     } catch (err) {
       showToast(`Export download failed: ${err instanceof Error ? err.message : err}`, "error");
