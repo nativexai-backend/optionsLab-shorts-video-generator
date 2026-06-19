@@ -64,6 +64,8 @@ export interface ChartSpec {
   ticker: string; // e.g. "NVDA"
   companyName?: string; // e.g. "NVIDIA Corporation"
   date?: string; // display date, e.g. "Jun 17, 2026"
+  xLabels?: string[]; // evenly-spaced x-axis labels (e.g. ["Fri 18", "Mon 21", "Tue 22"])
+  logo?: string; // embedded logo as a data URL (renders offline); falls back to a monogram
   candles: Candle[]; // embedded so server-side render needs no network
   chartType: ChartType;
   theme: "dark" | "light";

@@ -29,6 +29,9 @@ Image generators RENDER any quantity you mention as ugly baked-in text (banners,
 - "75% of tankers stuck" → "oil tankers anchored in a crowded gulf, midday aerial view, clear blue water"
 The spoken captions deliver the number; the image delivers the feeling of it.
 
+CRITICAL — STAY ON TOPIC (most important rule):
+Every scene's visual must depict EXACTLY what its own script segment is about — the specific company, person, product, event, or metric named in that segment. Pull the subject straight from the words of the segment. NEVER introduce a subject, person, company, place, or concept that isn't in that segment. NO tangential ideas, NO generic filler (random trading floors, skylines, handshakes) when the segment names something concrete, NO creative leaps to a loosely-related theme. If the segment is about Nvidia's earnings, the visual is Nvidia — not a generic data center or an unrelated chart. When you genuinely can't tie a visual to the segment's subject, prefer a clean chart or that entity's logo over an off-topic scene. The description and imagePrompt must both stay on the segment's exact topic.
+
 CRITICAL — EXACT CONTEXT:
 Extract the EXACT financial context from the script: which company, which person, direction up or down (green up / red down), which sector. "Tesla stock surged" means a green upward chart and Tesla-specific imagery, never a generic flat chart. Name real entities explicitly — these prompts also tag a reusable asset library ("Elon Musk portrait", "Tesla logo", "green uptrend chart"), so specific, consistent naming matters.
 

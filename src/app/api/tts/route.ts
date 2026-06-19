@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { TTS_MODEL_ID, TTS_VOICE_SETTINGS } from "@/lib/voices";
 import { normalizeForTTS } from "@/lib/tts-text";
 import { recordUsage } from "@/lib/usage-storage";
+import { applyPronunciation } from "@/lib/pronunciation";
+import { readPronunciations } from "@/lib/pronunciation-storage";
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -34,10 +36,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Money and numbers are expanded ("$5.08" → "five dollars and eight cents")
-  // so the voice reads them naturally; the stored script is untouched. This
-  // expanded text is what ElevenLabs bills on (≈1 credit per character).
-  const billedText = normalizeForTTS(text);
+  // Apply the pronunciation dictionary first ("G7" → "G seven"), then expand
+  // money/numbers ("$5.08" → "five dollars and eight cents"). The stored script
+  // is untouched; this expanded text is what ElevenLabs bills on (≈1 credit/char).
+  const dict = await readPronunciations();
+  const billedText = normalizeForTTS(applyPronunciation(text, dict));
 
   try {
     const res = await fetch(

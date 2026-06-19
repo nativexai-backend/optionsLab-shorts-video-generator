@@ -51,17 +51,17 @@ function driftAt(trend: ChartTrend, i: number, n: number): number {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-function syntheticCandles(trend: ChartTrend, n: number): Candle[] {
+function syntheticCandles(trend: ChartTrend, n: number, base = 100): Candle[] {
   const baseVol = trend === "volatile" ? 0.02 : 0.01;
   const maxWiggle = trend === "volatile" ? 0.07 : 0.035; // close stays within this of the trend line
   let trendMult = 1; // deterministic trend → reliable direction
   let wiggle = 0; // bounded AR(1) oscillation → texture without flipping direction
   let vol = baseVol; // volatility clusters like real markets
-  let prevClose = 100;
+  let prevClose = base;
   const out: Candle[] = [];
   for (let i = 0; i < n; i++) {
     trendMult *= 1 + driftAt(trend, i, n);
-    const trendPrice = 100 * trendMult;
+    const trendPrice = base * trendMult;
     vol = clamp(vol + (Math.random() - 0.5) * baseVol * 0.4, baseVol * 0.4, baseVol * 1.8);
     wiggle = clamp(wiggle * 0.85 + (Math.random() - 0.5) * vol * 2, -maxWiggle, maxWiggle);
     const c = Math.max(1, trendPrice * (1 + wiggle));
@@ -79,6 +79,9 @@ export async function GET(req: NextRequest) {
   const range = (req.nextUrl.searchParams.get("range") as ChartRange) || "1D";
   const trend = (req.nextUrl.searchParams.get("trend") as ChartTrend) || "up";
   const n = RANGE_MAP[range]?.outputsize ?? 78;
+  // Reference price for the selected ticker, so synthetic candles sit at a
+  // realistic level instead of always ~$100. Clamped to a sane range.
+  const base = Math.min(100000, Math.max(0.5, Number(req.nextUrl.searchParams.get("base")) || 100));
 
   // Try the real provider; fall back to a synthetic trend-shaped series.
   try {
@@ -90,5 +93,5 @@ export async function GET(req: NextRequest) {
     // fall through to synthetic
   }
 
-  return NextResponse.json({ ticker, candles: syntheticCandles(trend, n), source: "synthetic" });
+  return NextResponse.json({ ticker, candles: syntheticCandles(trend, n, base), source: "synthetic" });
 }

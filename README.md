@@ -11,11 +11,12 @@ Built with **Next.js 16** + **Remotion 4** (React-based video rendering).
 ## Features
 
 - **Script → Voiceover** — six presenter avatars, each mapped to an ElevenLabs voice, with one-click voice previews. Multiple "takes" per project; pick which take ships.
-- **Smart TTS pronunciation** — money and numbers are normalized before synthesis (`$5.08` → "five dollars and eight cents", `102` → "one hundred and two", `2-3` → "two to three") while the script you typed stays untouched.
+- **Smart TTS pronunciation** — money, numbers, and whole-number percentages are normalized before synthesis (`$5.08` → "five dollars and eight cents", `102` → "one hundred and two", `2-3` → "two to three", `300%` → "three hundred percent") while the script you typed stays untouched. A global **pronunciation dictionary** (top-bar **Pronounce** button) fixes terms TTS mangles — `G7` → "G seven", `FOMC` → "F O M C", `OPEC` → "Oh-peck" — applied only to the spoken text, not the on-screen captions.
 - **Word-synced captions** — generated audio is transcribed with word timestamps (Groq Whisper, local Whisper fallback). Karaoke-style highlighting, editable text with automatic timing re-alignment, full style controls (font, position, colors).
-- **AI shot list** — the script is broken into beats, each with a category, suggested animation, and a production-ready image prompt (bright, modern editorial photography house style; prompts double as stock-search queries). A **Visual pace** control (Chill / Normal / Fast) auto-splits long beats into evenly-paced shots; per-scene **Refine** rewrites a prompt (optionally steered), and a per-card delete removes a block from the shot list and timeline at once. Providers: Groq → Claude → rule-based fallback.
-- **Smart image library** — images you drop into scenes are saved and auto-tagged (filename + scene context), then surfaced as thumbnail matches on future shot cards so recurring subjects (a ticker logo, a CEO portrait) are reused instead of re-sourced. Browse/search/edit-tags in the Library modal.
-- **Animated stock charts** — branded, on-brand charts that *draw in as the video plays* (replacing off-brand TradingView screenshots). Real OHLC data when a provider key is set, or a realistic synthetic series otherwise. Minimal card design: logo badge + ticker/company + date, price + change, faint-grid line/candles/area.
+- **AI shot list** — the script is broken into beats, each with a category, suggested animation, and a production-ready image prompt (bright, modern editorial photography house style; prompts double as stock-search queries, and stay strictly on the segment's named subject). A **Visual pace** control (Chill / Normal / Fast) auto-splits long beats into evenly-paced shots; per-scene **Refine** rewrites a prompt (optionally steered), and a per-card delete removes a block from the shot list and timeline at once. Provider selectable per session (**Claude by default** for quality; Groq and a rule-based engine also available).
+- **Stock photo search (Pexels + Google)** — each shot card has a **Find photos** button that searches **Pexels** first (bright editorial photography) and falls back to **SerpApi / Google Images** for named people and company logos. Source-aware queries (rich visual prompt for Pexels, concise entity query for Google), an editable search box, and quick chips (🏢 HQ + logo · Logo · Storefront · Portrait). Picks are downloaded and saved into the library automatically.
+- **Smart image library** — images you drop into scenes (or pick from stock search) are saved and auto-tagged (filename + scene context), then surfaced as thumbnail matches on future shot cards so recurring subjects (a ticker logo, a CEO portrait) are reused instead of re-sourced. Browse/search/edit-tags in the Library modal.
+- **Animated stock charts** — branded, on-brand charts that *draw in as the video plays* (replacing off-brand TradingView screenshots). Real OHLC data when a provider key is set, or a realistic synthetic series centered on the ticker's real price level otherwise. Searchable **ticker picker** auto-fills the company name; **real company logos** render in the chart header (with a monogram fallback). Modern card design: logo + ticker/company + date, price + change, a smooth draw-in spline with a glowing endpoint, dashed drop line, and date-labeled x-axis (line / candles / area).
 - **API usage tracking** — per-project, per-API consumption (ElevenLabs characters ≈ credits, Groq/Claude tokens, Whisper seconds) with an overall view, so you can see where spend goes. Top-bar **Usage** button.
 - **Timeline editor** — live Remotion preview, audio waveform, draggable segments, per-image pan/zoom animations (Ken Burns, pans, zooms), drag-to-reorder slots that keep the shot list in lockstep, undo/redo (⌘Z / ⌘⇧Z).
 - **Branding** — audio-reactive avatar overlay with four visualizer styles (Pulse Rings, Liquid Wave, Bars, Minimal Glow), animated intro (circle reveal / slide down), OptionsLab outro card with disclaimer, persistent "OptionsLab App" badge.
@@ -37,11 +38,15 @@ npm run dev                  # http://localhost:3000
 | Variable | Required | Used for |
 |---|---|---|
 | `ELEVENLABS_API_KEY` | **Yes** (for voiceover) | TTS generation + avatar voice previews |
-| `GROQ_API_KEY` | Recommended | Whisper transcription (captions) + script analysis + prompt refinement |
-| `ANTHROPIC_API_KEY` (or `ANTHROPIC`) | Optional | Claude for script analysis / prompt refinement (either name is accepted) |
+| `ANTHROPIC_API_KEY` (or `ANTHROPIC`) | Recommended | Claude — the default engine for script analysis / prompt refinement (either name is accepted) |
+| `GROQ_API_KEY` | Recommended | Whisper transcription (captions) + alternate script-analysis provider |
+| `PEXEL_API_KEY` | Optional | Pexels stock-photo search (free at pexels.com/api). Primary source for shot images. |
+| `SERPAPI_API_KEY` | Optional | SerpApi / Google Images — fallback for named people and company logos (serpapi.com) |
+| `TICKER_LOGO_API_KEY` | Optional | Real company logos in chart headers. Without it, the chart shows a ticker monogram. |
 | `TWELVE_DATA_API_KEY` | Optional | Real OHLC data for stock charts (free tier at twelvedata.com). Without it, charts use a realistic synthetic series. |
 | `DATA_DIR` | Optional | Overrides where project data is stored (default `data/projects`) |
 | `LIBRARY_DIR` | Optional | Overrides the image-library location (default `data/library`) |
+| `PRONUNCIATION_PATH` | Optional | Overrides the pronunciation-dictionary file (default `data/pronunciation.json`) |
 
 The app degrades gracefully: without Groq, transcription falls back to a local Whisper install and scene analysis falls back to a rule-based engine. Without ElevenLabs, voice features are disabled and the UI shows a banner. Service status: `GET /api/health`.
 
@@ -56,7 +61,7 @@ Avatar images live in `public/avatars/` (filename = presenter name). The avatar�
 The left panel is the workflow, in order:
 
 1. **① Script & Voice** — pick a presenter (▶ to preview their voice), write/paste the script (5,000-char limit with estimated audio duration), Generate Voiceover. Each generation creates a *take*; click **Use** on the take that should ship. Optional background music and audio delay live here too.
-2. **② Visuals** — *Suggest Visuals from Script* builds the AI shot list. Set the **Visual pace** (Chill / Normal / Fast); **Copy** prompts into your image tool or pick a **library match** thumbnail on the card; drop images into the numbered placeholder slots (numbers/colors match the timeline). **Re-sync Timeline** re-paces existing slots; the **×** on a card deletes that block everywhere. Or skip the AI and just drop images.
+2. **② Visuals** — *Suggest Visuals from Script* builds the AI shot list (Claude by default). Set the **Visual pace** (Chill / Normal / Fast); **Copy** prompts into your image tool, pick a **library match** thumbnail, or click **Find photos** to search Pexels/Google and drop a stock photo straight onto the slot (auto-saved to the library). Drop your own images into the numbered placeholder slots (numbers/colors match the timeline). **Re-sync Timeline** re-paces existing slots; the **×** on a card deletes that block everywhere. Or skip the AI and just drop images.
 3. **③ Captions & Style** — captions appear automatically after a voiceover. Edit the text freely (timings re-align), tune font/position/colors.
 4. **④ Branding** — avatar size/position and speaking-indicator style, badge position, intro animation, outro card (OptionsLab preset or custom).
 
@@ -86,7 +91,7 @@ Short beats that are already a good length pass through unsplit. **Re-sync Timel
 
 **4. Refine (`/api/refine-prompt`).** Each shot card has a **✦ Refine** button that rewrites its image prompt — once per click, optionally steered by a one-line direction ("night skyline, more dramatic"). The house-style and no-text rules always survive.
 
-**5. Fill the slots.** *Add All to Timeline* turns every shot into a numbered placeholder slot (numbers/colors match the timeline). You **Copy** the prompt into an image tool, generate, and drop the result into the slot — or pick a library match, or drop your own images and skip the AI entirely. The shot-list card, image slot, and timeline segment stay 1:1 by number and color.
+**5. Fill the slots.** *Add All to Timeline* turns every shot into a numbered placeholder slot (numbers/colors match the timeline). You **Copy** the prompt into an image tool, generate, and drop the result into the slot — or pick a library match, **Find photos** from stock search, or drop your own images and skip the AI entirely. The shot-list card, image slot, and timeline segment stay 1:1 by number and color.
 
 ## Smart image library
 
@@ -94,25 +99,42 @@ A reusable, self-building asset library so recurring subjects don't get re-sourc
 
 - **Storage (`src/lib/library-storage.ts`).** Images live in `data/library/` — `index.json` (the records) + `files/<contenthash>.<ext>`. The id is a content hash, so identical bytes **dedupe** to one record (drop the same Tesla logo into 10 projects → one entry with a usage count). No database; same file-based pattern as `data/projects/`.
 - **Auto-capture.** When an image is assigned to a scene slot it's POSTed to the library and tagged automatically from the **filename** + the scene's **category and description** (harvested free from the analyzer — no vision model in the MVP). Descriptive filenames (`tesla-logo.png`, `elon-musk-stage.jpg`) make matching sharp.
-- **Matching (`src/lib/library-types.ts`, tested).** Content overlap is **required** — an image only matches a shot if it shares keywords (tags weighted highest, then description); category and usage only re-rank among already-relevant results, never surface unrelated images on their own. Each shot card shows up to 6 thumbnail matches; clicking one loads it into the slot.
+- **Matching (`src/lib/library-types.ts`, tested).** Content overlap is **required** — an image only matches a shot if it shares keywords (tags weighted highest, then description); category and usage only re-rank among already-relevant results, never surface unrelated images on their own. Each shot card shows up to 3 inline thumbnail matches (clicking one loads it into the slot); **Find photos** opens the full picker with stock search.
 - **Library browser.** The **Library** button (top bar) opens a modal to search/filter all images and edit tags / description / category / delete — for correcting any mis-tags, which improves matching immediately.
 - **API:** `/api/library` (GET search, POST add), `/api/library/[id]` (PATCH/DELETE), `/api/library/[id]/file` (serve).
 
 Phase 2 (not built): vision auto-tagging, embedding-based matching if keywords prove insufficient, cloud storage if multi-machine.
 
+## Stock photo search (Pexels + Google)
+
+Source images per scene without leaving the app, via the **Find photos** button on each shot card. Opens a scene-aware picker (`ImageSuggestModal`).
+
+- **Two providers, the right query for each (`/api/stock-photo`).** **Pexels** is primary — free, bright editorial photography that fits the house style — searched on the scene's rich visual prompt. **SerpApi / Google Images** is the fallback for the things stock libraries lack (named executives, politicians, specific company signage), searched on a *concise entity query*. Both keys stay server-side; results are normalized to one shape. **Auto** does Pexels then tops up with Google; you can force either source.
+- **Streamlined to context.** The query is derived subject-first from the prompt (Google gets `Nvidia headquarters building logo sign`, not the full editorial sentence — which is the difference between on-target results and noise). An editable search box and quick chips (**🏢 HQ + logo · Logo · Storefront · Portrait**) retarget instantly — so searching a company returns its HQ with signage, and people resolve to real photos.
+- **Saved on pick (`POST /api/stock-photo`).** A chosen photo is downloaded server-side (browser UA + timeout, magic-byte sniffing, and a thumbnail fallback when a source blocks the request) and stored in the library with scene-derived tags — so it's reused next time and ships offline in the render. The modal shows scene suggestions (library matches + stock) up top, with the full library tucked behind a collapsible "Show all".
+
 ## Animated stock charts
 
 On-brand charts that draw in as the video plays, instead of pasting TradingView screenshots (which drag in their own chrome/watermark/theme).
 
-- **Data (`/api/chart-data`).** Fetches real OHLC from **Twelve Data** when `TWELVE_DATA_API_KEY` is set; otherwise generates a **realistic synthetic series** — the close tracks a deterministic trend line with bounded, volatility-clustered wiggle, so the direction is reliable (up / down / volatile / crash→recover) while still looking like real price action. Candle data is **embedded in the chart segment**, so the video render never hits the network.
-- **Rendering.** A timeline segment is either an image **or** a chart (`ImageSegment.chart`). `AnimatedChart.tsx` is a pure SVG component driven by a `progress` (0..1) prop — *no Remotion hooks* — so the **same component powers both the live video and the modal's rAF preview**. It draws in left-to-right; charts skip the Ken Burns pan/zoom. Minimal card layout: logo badge (ticker monogram) + ticker/company + date, price + change, faint grid, line/candles/area.
-- **Creating one.** Top-bar **Chart** button → modal: ticker, company, range, trend (shapes the synthetic fallback), style, theme — with a live animated preview. *Add to timeline* replaces the selected slot or appends a new segment. Charts persist with the project (spec embedded in `imageTiming`), so they re-render identically on reload and in the exported MP4.
+- **Data (`/api/chart-data`).** Fetches real OHLC from **Twelve Data** when `TWELVE_DATA_API_KEY` is set; otherwise generates a **realistic synthetic series** centered on the ticker's reference price — the close tracks a deterministic trend line with bounded, volatility-clustered wiggle, so the direction is reliable (up / down / volatile / crash→recover) while still looking like real price action. Candle data is **embedded in the chart segment**, so the video render never hits the network.
+- **Company logos (`/api/ticker-logo`).** The chart header shows the **real company logo**, proxied server-side (keeping `TICKER_LOGO_API_KEY` private) and embedded as a self-contained data URL so it renders offline. Theme-aware (dark/light) with a fallback to the other theme, and a ticker-monogram fallback when no logo exists.
+- **Rendering.** A timeline segment is either an image **or** a chart (`ImageSegment.chart`). `AnimatedChart.tsx` is a pure SVG component driven by a `progress` (0..1) prop — *no Remotion hooks* — so the **same component powers both the live video and the modal's rAF preview**. The line is a smooth Catmull-Rom spline that draws in left-to-right (revealed by interpolating the tip, so the line and its glowing endpoint marker never desync), with a dashed drop line and a date-labeled x-axis; charts skip the Ken Burns pan/zoom. Card layout: logo + ticker/company + date, price + change (spaced to never overlap), line / candles / area.
+- **Creating one.** Top-bar **Chart** button → modal: a searchable **ticker picker** (type a symbol or company name) that auto-fills the company and centers the price; range, trend (shapes the synthetic fallback), style, theme — with a live animated preview. *Add to timeline* replaces the selected slot or appends a new segment. Charts persist with the project (spec embedded in `imageTiming`), so they re-render identically on reload and in the exported MP4.
+
+## Pronunciation dictionary
+
+A global term→spoken-form map that fixes how the TTS voice says acronyms and names that number/money rules can't predict.
+
+- **Where it applies.** The dictionary is applied to the text sent to ElevenLabs **only** — the stored script and the on-screen captions keep their original spelling. Order: dictionary (`G7` → "G seven") → money/number/percentage expansion. Matching is whole-word and case-insensitive, longest term first (so `G20` wins over `G2`).
+- **Editing.** The top-bar **Pronounce** button opens a modal to add/edit/remove entries. Ships seeded with common finance/news terms (`G7`, `G20`, `FOMC`, `OPEC`, `NATO`, `ECB`, `GDP`, `CPI`, `FISA`).
+- **Storage / API.** One JSON file (`data/pronunciation.json`, override with `PRONUNCIATION_PATH`). `GET /api/pronunciation` reads it (seeded with defaults on first run); `PUT` replaces it.
 
 ## API usage
 
 The top-bar **Usage** button shows per-project, per-API consumption plus overall totals: ElevenLabs **characters** (≈ credits), Groq / Claude **tokens**, Whisper **seconds**. Each API route records its real reported usage against the current project (`data/usage.json`, gitignored). Tracking starts when the feature is added — earlier usage isn't retroactive.
 
-The **AI provider** dropdown in ② Visuals (Auto / Groq / Claude / Rules) applies to both *Suggest Visuals* and *✦ Refine*. It's populated from `/api/health` on load, so Claude is selectable up front when its key is configured. Note: **Auto** always tries Groq first (free), so Claude only runs when explicitly selected or as a fallback.
+The **AI provider** dropdown in ② Visuals (Auto / Groq / Claude / Rules) applies to both *Suggest Visuals* and *✦ Refine*. It **defaults to Claude** for the best visual quality (falling back to Auto if no Anthropic key is configured), and is populated from `/api/health` on load. **Auto** tries Groq first (free); **Rules** is the no-key regex engine.
 
 ## Architecture
 
@@ -121,14 +143,17 @@ src/
 ├── app/
 │   ├── page.tsx                  # entry — renders the Editor
 │   └── api/
-│       ├── tts/                  # ElevenLabs synthesis (+ pronunciation normalization)
+│       ├── tts/                  # ElevenLabs synthesis (+ pronunciation + number normalization)
+│       ├── pronunciation/        # global term→spoken-form dictionary (GET/PUT)
 │       ├── voice-preview/        # cached per-avatar voice samples
 │       ├── transcribe/           # Groq Whisper → word timestamps (local Whisper fallback)
-│       ├── analyze-script/       # AI shot list (Groq → Claude → rules)
+│       ├── analyze-script/       # AI shot list (Claude default; Groq / rules)
 │       ├── refine-prompt/        # one-shot image-prompt rewrite, optionally steered
+│       ├── stock-photo/          # Pexels + SerpApi search (GET) + import-to-library (POST)
 │       ├── render/               # job-based Remotion render (POST start, GET poll/download)
 │       ├── library/              # image library: search/add, [id] PATCH/DELETE, [id]/file
 │       ├── chart-data/           # OHLC from Twelve Data, or synthetic trend-shaped series
+│       ├── ticker-logo/          # proxied real company logos for chart headers
 │       ├── usage/                # per-project / per-API usage aggregation
 │       ├── projects/             # project index + state + file sync (disk-backed)
 │       └── health/               # which API keys are configured
@@ -140,7 +165,9 @@ src/
 │   ├── RenderButton.tsx          # export modal + job polling
 │   ├── ThumbnailModal.tsx        # canvas thumbnail generator
 │   ├── LibraryModal.tsx          # image library browser + tag editor
-│   ├── ChartModal.tsx            # stock-chart maker + live animated preview
+│   ├── ImageSuggestModal.tsx     # per-scene stock-photo + library picker (Find photos)
+│   ├── PronunciationModal.tsx    # pronunciation-dictionary editor
+│   ├── ChartModal.tsx            # stock-chart maker + searchable ticker picker + preview
 │   └── UsageModal.tsx            # API usage breakdown
 ├── remotion/
 │   ├── VideoComposition.tsx      # composition root (all layers)
@@ -156,10 +183,14 @@ src/
     ├── server-storage.ts         # disk persistence (data/projects), serialized index writes
     ├── transcript.ts             # Whisper token merging + caption re-alignment  [tested]
     ├── scene-timing.ts           # shot list → timeline matching + pace splitting [tested]
-    ├── tts-text.ts               # money/number speech normalization            [tested]
+    ├── tts-text.ts               # money/number/percentage speech normalization [tested]
+    ├── pronunciation.ts          # dictionary apply + defaults                  [tested]
+    ├── pronunciation-storage.ts  # disk persistence for the pronunciation dict
     ├── library-storage.ts        # disk persistence for the image library
     ├── library-types.ts          # library records + relevance matching         [tested]
     ├── library-client.ts         # client wrappers for the library API
+    ├── stock-photo-client.ts     # client wrappers for Pexels/Google search + import
+    ├── tickers.ts                # ticker list (symbol → company + reference price)
     ├── usage-storage.ts          # per-project / per-API usage recording
     ├── anthropic.ts              # resolves ANTHROPIC_API_KEY or ANTHROPIC
     └── voices.ts                 # avatar → ElevenLabs voice map + TTS model
@@ -181,7 +212,7 @@ Auto-save runs 500 ms after any change and syncs both layers (including the proj
 ```bash
 npm run dev     # dev server (Remotion bundle rebuilds per render in dev)
 npm run build   # production build
-npm test        # vitest — transcript, scene-timing, TTS-normalization, library-matching suites
+npm test        # vitest — transcript, scene-timing, TTS-normalization, pronunciation, library-matching suites
 npm run lint
 ```
 
@@ -195,5 +226,5 @@ Notes:
 - **Vision auto-tagging** — send captured images to a vision model to tag people/logos/objects automatically, on top of the current filename + scene-context tagging.
 - **Semantic matching** — embedding-based library search if keyword matching proves insufficient.
 - **Cheaper/faster TTS default** — option to switch the voice model to `eleven_flash_v2_5` (≈half the credits).
-- **Real company logos on charts** — replace the ticker-monogram badge with actual brand logos (logo source TBD).
 - **Per-scene "Make chart"** — a chart button on chart-category shot cards, prefilled from the detected ticker/trend.
+- **Live market data for charts** — wire up a real-time OHLC provider so synthetic series are only a fallback.

@@ -7,6 +7,7 @@ import { realignWords } from "../lib/transcript";
 import { PACE_OPTIONS, PaceName } from "../lib/scene-timing";
 import type { LibraryImage } from "../lib/library-types";
 import { searchLibrary, libraryFileUrl } from "../lib/library-client";
+import { ImageSuggestModal } from "./ImageSuggestModal";
 
 const SCRIPT_CHAR_LIMIT = 5000;
 const SPOKEN_WORDS_PER_SECOND = 2.5;
@@ -216,12 +217,13 @@ const PRIORITY_INDICATOR: Record<string, { dot: string; label: string }> = {
   optional: { dot: "bg-zinc-500", label: "Optional" },
 };
 
-function ShotListCard({ scene, index, onApply, onDelete, onPickFromLibrary, onRefine, isRefining }: { scene: SceneSuggestion; index: number; onApply: () => void; onDelete: () => void; onPickFromLibrary: (image: LibraryImage) => void; onRefine: (guidance?: string) => void; isRefining: boolean }) {
+function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLibrary, onRefine, isRefining, showToast }: { scene: SceneSuggestion; index: number; projectId: string | null; onApply: () => void; onDelete: () => void; onPickFromLibrary: (image: LibraryImage) => void; onRefine: (guidance?: string) => void; isRefining: boolean; showToast: (message: string, type: "error" | "success") => void }) {
   const [showScript, setShowScript] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showRefineInput, setShowRefineInput] = useState(false);
   const [guidance, setGuidance] = useState("");
+  const [browseOpen, setBrowseOpen] = useState(false);
   const catColor = CATEGORY_COLORS[scene.category] ?? CATEGORY_COLORS["b-roll"];
   const priority = PRIORITY_INDICATOR[scene.priority] ?? PRIORITY_INDICATOR.recommended;
 
@@ -380,29 +382,50 @@ function ShotListCard({ scene, index, onApply, onDelete, onPickFromLibrary, onRe
         </span>
       </div>
 
-      {/* Library matches — pick a reused image instead of sourcing fresh */}
-      {matches.length > 0 && (
-        <div className="mt-1.5 pt-1.5 border-t border-zinc-700/40">
-          <div className="flex items-center gap-1 mb-1">
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
-            <span className="text-[9px] text-green-400 font-medium">From library ({matches.length})</span>
-          </div>
-          <div className="flex gap-1 overflow-x-auto pb-0.5">
-            {matches.map((img) => (
-              <button
-                key={img.id}
-                type="button"
-                onClick={() => onPickFromLibrary(img)}
-                title={`Use "${img.filename}" — ${img.tags.join(", ")}`}
-                className="flex-shrink-0 w-9 h-12 rounded overflow-hidden border border-zinc-700 hover:border-green-500 transition-colors"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
-              </button>
-            ))}
-          </div>
+      {/* Image source: a few library matches + the stock-photo / library browser */}
+      <div className="mt-1.5 pt-1.5 border-t border-zinc-700/40">
+        <div className="flex items-center gap-1.5">
+          {matches.length > 0 ? (
+            <>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400 flex-shrink-0"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+              <div className="flex gap-1 overflow-x-auto pb-0.5">
+                {matches.slice(0, 3).map((img) => (
+                  <button
+                    key={img.id}
+                    type="button"
+                    onClick={() => onPickFromLibrary(img)}
+                    title={`Use "${img.filename}" — ${img.tags.join(", ")}`}
+                    className="flex-shrink-0 w-9 h-12 rounded overflow-hidden border border-zinc-700 hover:border-green-500 transition-colors"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <span className="text-[9px] text-zinc-500 flex-shrink-0">No library match yet</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setBrowseOpen(true)}
+            className="ml-auto flex-shrink-0 flex items-center gap-1 text-[9px] px-2 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 transition-colors font-medium"
+          >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+            Find photos
+          </button>
         </div>
-      )}
+      </div>
+
+      <ImageSuggestModal
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        scene={scene}
+        index={index}
+        projectId={projectId}
+        onPick={onPickFromLibrary}
+        showToast={showToast}
+      />
     </div>
   );
 }
@@ -1016,7 +1039,7 @@ const InputPanelInner: React.FC<Props> = ({
                         ? "bg-violet-600 text-white"
                         : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
                     }`}
-                    title={p.value === "chill" ? "~9s per shot (fewer cuts)" : p.value === "normal" ? "~6s per shot" : "~4.5s per shot (more cuts)"}
+                    title={p.value === "single" ? "One shot per scene — no splitting" : p.value === "chill" ? "~9s per shot (fewer cuts)" : p.value === "normal" ? "~6s per shot" : "~4.5s per shot (more cuts)"}
                   >
                     {p.label}
                   </button>
@@ -1075,11 +1098,13 @@ const InputPanelInner: React.FC<Props> = ({
                       key={scene.id}
                       scene={scene}
                       index={i}
+                      projectId={currentProjectId}
                       onApply={() => onApplySuggestion(scene)}
                       onDelete={() => onDeleteSuggestion(scene.id)}
                       onPickFromLibrary={(image) => onPickFromLibrary(scene, image)}
                       onRefine={(guidance) => onRefinePrompt(scene.id, guidance)}
                       isRefining={refiningPromptId === scene.id}
+                      showToast={showToast}
                     />
                   ))}
                 </div>
@@ -2245,11 +2270,21 @@ function DraggableImageCard({
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-500"><path d="M8 3v10M3 8h10" /></svg>
           </div>
         ) : (
-          <img
-            src={image?.src}
-            alt={file.name}
-            className="w-9 h-9 object-cover rounded"
-          />
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+            title="Click to replace this image"
+            className="relative w-9 h-9 rounded overflow-hidden group/thumb"
+          >
+            <img src={image?.src} alt={file.name} className="w-full h-full object-cover" />
+            <span className="absolute inset-0 bg-black/55 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </span>
+          </button>
         )}
       </div>
 

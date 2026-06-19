@@ -117,7 +117,20 @@ export function expandRangesForTTS(text: string): string {
   return text.replace(/\b(\d{1,3})-(\d{1,3})\b/g, "$1 to $2");
 }
 
-/** Full TTS text pipeline: money → ranges → spelled-out integers. */
+/**
+ * Large/whole-number percentages ("2,215%", "300%") read badly — the comma and
+ * "%" trip the voice up. Spell the number and say "percent". Decimal
+ * percentages ("3.24%") are left as digits — those already read fine.
+ */
+export function spellPercentagesForTTS(text: string): string {
+  return text.replace(/(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)%/g, (m, num: string) => {
+    const n = Number(num.replace(/,/g, ""));
+    if (!Number.isInteger(n) || n >= 1e15) return m;
+    return `${numberToWords(n)} percent`;
+  });
+}
+
+/** Full TTS text pipeline: money → ranges → percentages → spelled-out integers. */
 export function normalizeForTTS(text: string): string {
-  return spellIntegersForTTS(expandRangesForTTS(normalizeMoneyForTTS(text)));
+  return spellIntegersForTTS(spellPercentagesForTTS(expandRangesForTTS(normalizeMoneyForTTS(text))));
 }

@@ -136,18 +136,20 @@ export interface PaceOptions {
   minShot: number; // never create a part shorter than this
 }
 
-export type PaceName = "chill" | "normal" | "fast";
+export type PaceName = "single" | "chill" | "normal" | "fast";
 
 // A beat splits into round(duration / targetShot) shots, so it only splits
 // once it's meaningfully longer than the target (≈1.5× target). Larger targets
-// → fewer, longer shots.
+// → fewer, longer shots. "single" never splits — one shot per scene.
 export const PACE_PRESETS: Record<PaceName, PaceOptions> = {
+  single: { targetShot: 100000, minShot: 1 },
   chill: { targetShot: 9, minShot: 3 },
   normal: { targetShot: 6, minShot: 2 },
   fast: { targetShot: 4.5, minShot: 1.5 },
 };
 
 export const PACE_OPTIONS: { value: PaceName; label: string }[] = [
+  { value: "single", label: "1 / scene" },
   { value: "chill", label: "Chill" },
   { value: "normal", label: "Normal" },
   { value: "fast", label: "Fast" },

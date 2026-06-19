@@ -22,8 +22,27 @@ interface Props {
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 2);
 const SANS = "Inter, system-ui, -apple-system, sans-serif";
 
+// Catmull-Rom → cubic-bezier so the line reads as a smooth flowing curve
+// (like a modern fintech chart) instead of straight segment-to-segment kinks.
+const smoothPath = (pts: { x: number; y: number }[]): string => {
+  if (pts.length < 2) return pts.length ? `M${pts[0].x},${pts[0].y}` : "";
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`;
+  }
+  return d;
+};
+
 export const AnimatedChart: React.FC<Props> = ({ spec, progress, width, height }) => {
-  const { candles, chartType, theme, upColor, downColor, ticker, companyName, date } = spec;
+  const { candles, chartType, theme, upColor, downColor, ticker, companyName, date, logo, xLabels } = spec;
   const n = candles.length;
   const dark = theme !== "light";
   const bg = dark ? "#0d1117" : "#ffffff";
@@ -76,17 +95,33 @@ export const AnimatedChart: React.FC<Props> = ({ spec, progress, width, height }
   const xOf = (i: number) => padX + (i / (n - 1)) * plotW;
 
   const shown = easeOut(Math.max(0, Math.min(1, progress)));
-  const revealX = padX + shown * plotW;
-  const visCount = Math.max(2, Math.ceil(shown * n));
-  const lastVis = Math.min(n - 1, visCount - 1);
 
   const initials = ticker.replace(/[^A-Z0-9]/gi, "").slice(0, 2).toUpperCase() || "•";
   const fmtPrice = `$${last.toFixed(2)}`;
   const fmtChange = `${change >= 0 ? "+" : ""}${change.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)`;
 
-  const linePts = candles.map((k, i) => `${xOf(i)},${yOf(k.c)}`);
-  const linePath = `M${linePts.join(" L")}`;
-  const areaPath = `${linePath} L${xOf(n - 1)},${plotBottom} L${xOf(0)},${plotBottom} Z`;
+  // Reveal by drawing the line through only the points up to the animated tip
+  // (with a fractional interpolated endpoint for a smooth sweep). No clip path:
+  // the line and the endpoint marker share the exact same tip, so they can never
+  // diverge, and at rest the line always spans the full width.
+  const allPts = candles.map((k, i) => ({ x: xOf(i), y: yOf(k.c) }));
+  const exact = shown * (n - 1);
+  const iTip = Math.floor(exact);
+  const revealed = allPts.slice(0, iTip + 1);
+  if (iTip < n - 1) {
+    const a = allPts[iTip], b = allPts[iTip + 1], f = exact - iTip;
+    revealed.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+  }
+  const tip = revealed[revealed.length - 1];
+  const linePath = smoothPath(revealed);
+  const areaPath = `${linePath} L${tip.x},${plotBottom} L${allPts[0].x},${plotBottom} Z`;
+  const visCount = Math.min(n, iTip + 1); // revealed candle count
+
+  const endX = tip.x;
+  const endY = tip.y;
+
+  // Place the change after the price's rendered width so dynamic numbers never overlap.
+  const changeX = padX + fmtPrice.length * priceSize * 0.6 + u * 0.018;
 
   return (
     <AbsoluteFill>
@@ -96,20 +131,21 @@ export const AnimatedChart: React.FC<Props> = ({ spec, progress, width, height }
             <stop offset="0%" stopColor={lineColor} stopOpacity={0.22} />
             <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
           </linearGradient>
-          <filter id="cGlow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="5" result="b" />
-            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-          <clipPath id="cReveal"><rect x={0} y={0} width={revealX} height={height} /></clipPath>
         </defs>
 
         <rect x={0} y={0} width={width} height={height} fill={bg} />
 
         {/* ── Header: logo + ticker/company, date right ── */}
-        <circle cx={padX + logoR} cy={headerY} r={logoR} fill={lineColor} />
-        <text x={padX + logoR} y={headerY + logoR * 0.34} textAnchor="middle" fill="#fff" fontFamily={SANS} fontWeight={800} fontSize={logoR * 0.9}>
-          {initials}
-        </text>
+        {logo ? (
+          <image href={logo} x={padX} y={headerY - logoR} width={logoD} height={logoD} preserveAspectRatio="xMidYMid meet" />
+        ) : (
+          <>
+            <circle cx={padX + logoR} cy={headerY} r={logoR} fill={lineColor} />
+            <text x={padX + logoR} y={headerY + logoR * 0.34} textAnchor="middle" fill="#fff" fontFamily={SANS} fontWeight={800} fontSize={logoR * 0.9}>
+              {initials}
+            </text>
+          </>
+        )}
 
         <text x={textX} y={topPad + tickerSize * 0.92} fill={textColor} fontFamily={SANS} fontWeight={800} fontSize={tickerSize} letterSpacing="0.01em">
           {ticker}
@@ -130,7 +166,7 @@ export const AnimatedChart: React.FC<Props> = ({ spec, progress, width, height }
         <text x={padX} y={priceY} fill={textColor} fontFamily={SANS} fontWeight={800} fontSize={priceSize}>
           {fmtPrice}
         </text>
-        <text x={padX + width * 0.30} y={priceY} fill={lineColor} fontFamily={SANS} fontWeight={700} fontSize={changeSize}>
+        <text x={changeX} y={priceY} fill={lineColor} fontFamily={SANS} fontWeight={700} fontSize={changeSize}>
           {fmtChange}
         </text>
 
@@ -141,7 +177,7 @@ export const AnimatedChart: React.FC<Props> = ({ spec, progress, width, height }
 
         {/* ── Plot ── */}
         {chartType === "candles" ? (
-          <g clipPath="url(#cReveal)">
+          <g>
             {candles.slice(0, visCount).map((k, i) => {
               const x = xOf(i);
               const bw = Math.max(2, (plotW / n) * 0.6);
@@ -158,12 +194,37 @@ export const AnimatedChart: React.FC<Props> = ({ spec, progress, width, height }
             })}
           </g>
         ) : (
-          <g clipPath="url(#cReveal)">
+          <>
             {chartType === "area" && <path d={areaPath} fill="url(#cArea)" />}
-            <path d={linePath} fill="none" stroke={lineColor} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
-            <circle cx={xOf(lastVis)} cy={yOf(candles[lastVis].c)} r={6} fill={lineColor} filter="url(#cGlow)" />
-          </g>
+            <path d={linePath} fill="none" stroke={lineColor} strokeWidth={u * 0.006} strokeLinejoin="round" strokeLinecap="round" />
+            {/* Endpoint marker rides the reveal: dashed drop line, soft halo, solid dot. */}
+            <line x1={endX} y1={endY} x2={endX} y2={plotBottom} stroke={lineColor} strokeWidth={1.5} strokeDasharray="4 5" opacity={0.45} />
+            <circle cx={endX} cy={endY} r={u * 0.022} fill={lineColor} opacity={0.16} />
+            <circle cx={endX} cy={endY} r={u * 0.009} fill={lineColor} />
+          </>
         )}
+
+        {/* ── X-axis labels (evenly spaced under the plot) ── */}
+        {xLabels && xLabels.length > 1
+          ? xLabels.map((lbl, i) => {
+              const t = i / (xLabels.length - 1);
+              const anchor = i === 0 ? "start" : i === xLabels.length - 1 ? "end" : "middle";
+              return (
+                <text
+                  key={i}
+                  x={padX + t * plotW}
+                  y={plotBottom + u * 0.038}
+                  textAnchor={anchor}
+                  fill={faint}
+                  fontFamily={SANS}
+                  fontWeight={500}
+                  fontSize={u * 0.019}
+                >
+                  {lbl}
+                </text>
+              );
+            })
+          : null}
       </svg>
     </AbsoluteFill>
   );

@@ -10,6 +10,7 @@ import { ThumbnailModal } from "./ThumbnailModal";
 import { LibraryModal } from "./LibraryModal";
 import { UsageModal } from "./UsageModal";
 import { ChartModal } from "./ChartModal";
+import { PronunciationModal } from "./PronunciationModal";
 
 const PlayerPanel = lazy(() => import("./PlayerPanel").then(m => ({ default: m.PlayerPanel })));
 import {
@@ -180,10 +181,12 @@ export const Editor: React.FC = () => {
   const [sceneSuggestions, setSceneSuggestions] = useState<SceneSuggestion[]>([]);
   const [isAnalyzingScript, setIsAnalyzingScript] = useState(false);
   type AnalysisProvider = "groq" | "claude" | "rules" | "auto";
-  const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider>("auto");
-  const [availableProviders, setAvailableProviders] = useState<AnalysisProvider[]>(["auto", "rules"]);
+  // Visuals (shot list + image prompts) default to Claude for the best quality;
+  // falls back to Auto if no Anthropic key is configured (see the health check).
+  const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider>("claude");
+  const [availableProviders, setAvailableProviders] = useState<AnalysisProvider[]>(["auto", "claude", "rules"]);
   const [lastUsedProvider, setLastUsedProvider] = useState<string | null>(null);
-  const [visualPace, setVisualPace] = useState<PaceName>("normal");
+  const [visualPace, setVisualPace] = useState<PaceName>("single");
   // The raw (un-paced) beats from the last analysis, so the pace control can
   // re-split instantly without another API call.
   const rawSuggestionsRef = useRef<SceneSuggestion[]>([]);
@@ -330,7 +333,7 @@ export const Editor: React.FC = () => {
     setActiveVoiceName(null);
     setActiveTakeId(null);
     setSceneSuggestions([]);
-    setVisualPace("normal");
+    setVisualPace("single");
     rawSuggestionsRef.current = [];
   }, []);
 
@@ -566,6 +569,8 @@ export const Editor: React.FC = () => {
         if (data.anthropic) providers.push("claude");
         providers.push("rules");
         setAvailableProviders(providers);
+        // Default-to-Claude only holds when a key is present; otherwise drop to Auto.
+        if (!data.anthropic) setAnalysisProvider((p) => (p === "claude" ? "auto" : p));
       })
       .catch(() => {});
   }, []);
@@ -1452,6 +1457,7 @@ export const Editor: React.FC = () => {
   const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [showUsageModal, setShowUsageModal] = useState(false);
   const [showChartModal, setShowChartModal] = useState(false);
+  const [showPronunciationModal, setShowPronunciationModal] = useState(false);
 
   // Add an animated chart as a timeline segment — replaces the selected slot if
   // one is selected, otherwise appends a new ~5s segment to fill on the timeline.
@@ -1885,6 +1891,17 @@ export const Editor: React.FC = () => {
           })()}
           <div className="ml-auto flex items-center gap-2">
             <button
+              onClick={() => setShowPronunciationModal(true)}
+              title="Fix how the voice pronounces specific terms"
+              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+                <path d="M7 12h2l1.5 4 3-8L16 12h1" />
+              </svg>
+              Pronounce
+            </button>
+            <button
               onClick={() => setShowChartModal(true)}
               title="Add an animated stock chart"
               className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
@@ -1976,6 +1993,13 @@ export const Editor: React.FC = () => {
           onToggleExpanded={handleToggleTimeline}
         />
       </main>
+
+      {/* Pronunciation dictionary */}
+      <PronunciationModal
+        open={showPronunciationModal}
+        onClose={() => setShowPronunciationModal(false)}
+        showToast={showToast}
+      />
 
       {/* Stock chart maker */}
       <ChartModal

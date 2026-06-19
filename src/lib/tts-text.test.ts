@@ -73,11 +73,18 @@ describe("normalizeForTTS (full pipeline)", () => {
     expect(normalizeForTTS("oil could hit $150")).toBe("oil could hit one hundred and fifty dollars");
   });
 
-  it("leaves decimals and percentages as digits", () => {
+  it("leaves decimal percentages as digits", () => {
     expect(normalizeForTTS("up 3.24% with volume at 2.5 million")).toBe(
       "up 3.24% with volume at 2.5 million"
     );
-    expect(normalizeForTTS("the VIX spiked above 23%")).toBe("the VIX spiked above 23%");
+  });
+
+  it("spells out whole/large percentages", () => {
+    expect(normalizeForTTS("the stock is up 2,215%")).toBe(
+      "the stock is up two thousand two hundred and fifteen percent"
+    );
+    expect(normalizeForTTS("a 300% gain")).toBe("a three hundred percent gain");
+    expect(normalizeForTTS("the VIX spiked above 23%")).toBe("the VIX spiked above twenty-three percent");
   });
 
   it("leaves bare years as digits", () => {
