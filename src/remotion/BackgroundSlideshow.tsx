@@ -127,17 +127,37 @@ export const BackgroundSlideshow: React.FC<Props> = ({
 
         if (opacity <= 0) return null;
 
+        // The clip's box in the frame + its z-order. Defaults to full-frame on
+        // the base track, so single-track projects render exactly as before.
+        const t = segment.transform;
+        const boxStyle: React.CSSProperties = t
+          ? {
+              position: "absolute",
+              left: `${t.x * 100}%`,
+              top: `${t.y * 100}%`,
+              width: `${t.width * 100}%`,
+              height: `${t.height * 100}%`,
+              overflow: "hidden",
+              opacity,
+              zIndex: segment.track ?? 0,
+            }
+          : { position: "absolute", inset: 0, opacity, zIndex: segment.track ?? 0 };
+
         // Chart segments animate themselves (drawing in) — render the chart and
-        // skip the Ken Burns pan/zoom.
+        // skip the Ken Burns pan/zoom. Sized to the clip's box.
         if (segment.chart) {
+          const pxW = t ? Math.max(1, Math.round(t.width * width)) : width;
+          const pxH = t ? Math.max(1, Math.round(t.height * height)) : height;
           return (
-            <AbsoluteFill key={index} style={{ opacity }}>
-              <AnimatedChart spec={segment.chart} progress={segProgress} width={width} height={height} />
-            </AbsoluteFill>
+            <div key={index} style={boxStyle}>
+              <AnimatedChart spec={segment.chart} progress={segProgress} width={pxW} height={pxH} />
+            </div>
           );
         }
 
-        const animation = segment.animation || "kenBurns";
+        // Overlay clips (a sub-frame box) render static within their box; only
+        // full-frame clips get the Ken Burns pan/zoom.
+        const animation = t ? "static" : (segment.animation || "kenBurns");
         const transform = getAnimationTransform(
           animation,
           segProgress,
@@ -146,7 +166,7 @@ export const BackgroundSlideshow: React.FC<Props> = ({
         );
 
         return (
-          <AbsoluteFill key={index} style={{ opacity }}>
+          <div key={index} style={boxStyle}>
             <Img
               src={segment.src}
               style={{
@@ -157,7 +177,7 @@ export const BackgroundSlideshow: React.FC<Props> = ({
                 willChange: "transform",
               }}
             />
-          </AbsoluteFill>
+          </div>
         );
       })}
     </AbsoluteFill>

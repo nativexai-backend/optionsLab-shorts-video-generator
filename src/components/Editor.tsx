@@ -29,6 +29,7 @@ import {
   DEFAULT_MUSIC_VOLUME,
   SceneSuggestion,
   ChartSpec,
+  ClipTransform,
 } from "../remotion/types";
 import { AVATAR_VOICE_MAP } from "../lib/voices";
 import {
@@ -352,6 +353,8 @@ export const Editor: React.FC = () => {
       startTime: img.startTime,
       endTime: img.endTime,
       animation: img.animation,
+      ...(img.track ? { track: img.track } : {}),
+      ...(img.transform ? { transform: img.transform } : {}),
       ...(img.chart ? { chart: img.chart } : {}),
     })),
     intro: intro ? { startTime: intro.startTime, duration: intro.duration, fadeDuration: intro.fadeDuration } : null,
@@ -451,7 +454,7 @@ export const Editor: React.FC = () => {
       const files: File[] = [];
       const segs: ImageSegment[] = [];
       for (let i = 0; i < timing.length; i++) {
-        const t = (timing[i] ?? {}) as { startTime?: number; endTime?: number; animation?: ImageAnimation; chart?: ChartSpec };
+        const t = (timing[i] ?? {}) as { startTime?: number; endTime?: number; animation?: ImageAnimation; chart?: ChartSpec; track?: number; transform?: ClipTransform };
         const f = await restoreFile(`image_${i}`);
         files.push(f ?? new File([], `placeholder-${i}.png`, { type: "image/png" }));
         segs.push({
@@ -459,6 +462,8 @@ export const Editor: React.FC = () => {
           startTime: t.startTime ?? 0,
           endTime: t.endTime ?? 10,
           animation: t.animation ?? (t.chart ? "static" : "kenBurns"),
+          ...(t.track ? { track: t.track } : {}),
+          ...(t.transform ? { transform: t.transform } : {}),
           ...(t.chart ? { chart: t.chart } : {}),
         });
       }

@@ -76,11 +76,28 @@ export interface ChartSpec {
 
 export const DEFAULT_CHART_COLORS = { up: "#22C55E", down: "#EF4444" };
 
+// A clip's box within the frame, normalized 0..1 (so it's resolution-agnostic).
+// Full-frame default is { x: 0, y: 0, width: 1, height: 1 }.
+export interface ClipTransform {
+  x: number; // left edge, fraction of frame width
+  y: number; // top edge, fraction of frame height
+  width: number; // fraction of frame width
+  height: number; // fraction of frame height
+}
+
+export const FULL_FRAME: ClipTransform = { x: 0, y: 0, width: 1, height: 1 };
+
 export interface ImageSegment {
   src: string;
   startTime: number;
   endTime: number;
   animation: ImageAnimation;
+  // Multi-track overlay support. `track` is the z-order (0 = base layer, higher
+  // renders on top); `transform` is the clip's box in the frame. Both are
+  // optional and default to a single full-frame base track, so projects created
+  // before multi-track render identically.
+  track?: number;
+  transform?: ClipTransform;
   // When present, this timeline segment renders an animated chart instead of an
   // image. The candle data is embedded so it renders without a network call.
   chart?: ChartSpec;
