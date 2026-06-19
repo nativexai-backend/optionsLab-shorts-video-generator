@@ -32,11 +32,14 @@ export async function searchStockPhotos(
   }
 }
 
-/** Download a chosen stock photo into the library; returns the saved record. */
+/**
+ * Download a chosen stock photo into the library; returns the saved record and
+ * whether it had to fall back to the low-res thumbnail (the original was blocked).
+ */
 export async function importStockPhoto(
   photo: StockPhoto,
   meta: { tags?: string[]; description?: string; category?: string; projectId?: string | null },
-): Promise<LibraryImage | null> {
+): Promise<{ image: LibraryImage | null; usedFallback: boolean }> {
   try {
     const res = await fetch("/api/stock-photo", {
       method: "POST",
@@ -52,9 +55,10 @@ export async function importStockPhoto(
         projectId: meta.projectId ?? undefined,
       }),
     });
-    if (!res.ok) return null;
-    return (await res.json()).image ?? null;
+    if (!res.ok) return { image: null, usedFallback: false };
+    const data = await res.json();
+    return { image: data.image ?? null, usedFallback: !!data.usedFallback };
   } catch {
-    return null;
+    return { image: null, usedFallback: false };
   }
 }

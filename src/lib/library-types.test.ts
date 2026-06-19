@@ -63,6 +63,15 @@ describe("scoreLibraryMatch", () => {
     expect(scoreLibraryMatch(popular, { text: "nvidia chip" })).toBe(0);
   });
 
+  it("does not surface on generic finance vocabulary alone", () => {
+    // A Goldman image tagged with generic words must NOT match an abstract macro
+    // line that names no entity — the overlap is only generic terms.
+    const goldman = img({ tags: ["goldman", "sachs"], description: "investors growth inflation markets" });
+    expect(scoreLibraryMatch(goldman, { text: "investors bracing for slower growth and cooler inflation" })).toBe(0);
+    // But it still matches when the distinctive name is present.
+    expect(scoreLibraryMatch(goldman, { text: "Goldman Sachs earnings" })).toBeGreaterThan(0);
+  });
+
   it("boosts same-category matches that already share keywords", () => {
     const logo = img({ tags: ["tesla"], category: "logo" });
     const withCat = scoreLibraryMatch(logo, { text: "tesla", category: "logo" });

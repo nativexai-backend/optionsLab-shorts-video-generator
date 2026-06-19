@@ -144,10 +144,10 @@ export const Timeline: React.FC<Props> = ({
         <div className="flex-shrink-0 border-r border-zinc-800" style={{ width: GUTTER_WIDTH }}>
           <div style={{ height: 26 }} /> {/* ruler offset */}
           <div className="flex items-center justify-end pr-2" style={{ height: WAVEFORM_HEIGHT }}>
-            <span className="text-[9px] text-zinc-400">Audio</span>
+            <span className="text-[10px] text-zinc-400">Audio</span>
           </div>
           <div className="flex items-center justify-end pr-2" style={{ height: TRACK_HEIGHT }}>
-            <span className="text-[9px] text-zinc-400">Images</span>
+            <span className="text-[10px] text-zinc-400">Images</span>
           </div>
         </div>
 
@@ -195,7 +195,7 @@ export const Timeline: React.FC<Props> = ({
                 }}
               >
                 <div className="h-full border-l-2 border-r border-dashed border-emerald-500/60 bg-emerald-500/10">
-                  <span className="text-[8px] text-emerald-400 font-medium px-1">Intro</span>
+                  <span className="text-[10px] text-emerald-400 font-medium px-1">Intro</span>
                 </div>
               </div>
             )}
@@ -209,7 +209,7 @@ export const Timeline: React.FC<Props> = ({
                 }}
               >
                 <div className="h-full border-l border-r-2 border-dashed border-amber-500/60 bg-amber-500/10">
-                  <span className="text-[8px] text-amber-400 font-medium px-1">Outro</span>
+                  <span className="text-[10px] text-amber-400 font-medium px-1">Outro</span>
                 </div>
               </div>
             )}

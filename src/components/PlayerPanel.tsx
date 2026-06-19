@@ -162,7 +162,7 @@ const PlayerPanelInner: React.FC<Props> = ({
 /** Approximate areas covered by TikTok/Reels UI — keep captions and key visuals out. */
 function SafeZoneOverlay() {
   const zone = "absolute bg-red-500/10 border-dashed border-red-400/50";
-  const label = "absolute text-[8px] font-medium text-red-300/80 px-1";
+  const label = "absolute text-[10px] font-medium text-red-300/80 px-1";
   return (
     <div className="absolute inset-0 pointer-events-none z-10 select-none">
       {/* Top — username / following tabs */}

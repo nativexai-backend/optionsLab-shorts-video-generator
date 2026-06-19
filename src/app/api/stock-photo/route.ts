@@ -48,33 +48,41 @@ async function searchPexels(query: string): Promise<StockPhoto[]> {
   })).filter((p: StockPhoto) => p.url);
 }
 
+const MIN_DIMENSION = 800; // drop anything smaller than this on its long edge
+
 async function searchSerpApi(query: string): Promise<StockPhoto[]> {
   const key = process.env.SERPAPI_API_KEY;
   if (!key) return [];
-  // Bias toward tall, editorial results to suit the 9:16 frame.
-  const url = `https://serpapi.com/search.json?engine=google_images&q=${encodeURIComponent(query)}&imgar=t&api_key=${key}`;
+  // Bias toward tall (`imgar=t`) AND large (`imgsz=l`) results — small images
+  // look blurry on the 720x1280 frame, and large originals are also more likely
+  // to be a real fetchable file rather than a hotlink-blocked thumbnail.
+  const url = `https://serpapi.com/search.json?engine=google_images&q=${encodeURIComponent(query)}&imgar=t&imgsz=l&api_key=${key}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`SerpApi ${res.status}`);
   const data = await res.json();
   const results = Array.isArray(data.images_results) ? data.images_results : [];
-  return results.slice(0, PER_PAGE).map((r: {
-    position?: number;
-    original?: string;
-    thumbnail?: string;
-    original_width?: number;
-    original_height?: number;
-    title?: string;
-    source?: string;
-  }): StockPhoto => ({
-    id: `serp-${r.position ?? r.original ?? Math.abs(hashString(r.thumbnail || ""))}`,
-    url: r.original || r.thumbnail || "",
-    thumb: r.thumbnail || r.original || "",
-    width: r.original_width,
-    height: r.original_height,
-    alt: r.title || query,
-    source: "serpapi",
-    credit: r.source ? `${r.source}` : "Google Images",
-  })).filter((p: StockPhoto) => p.url);
+  return results
+    .map((r: {
+      position?: number;
+      original?: string;
+      thumbnail?: string;
+      original_width?: number;
+      original_height?: number;
+      title?: string;
+      source?: string;
+    }): StockPhoto => ({
+      id: `serp-${r.position ?? r.original ?? Math.abs(hashString(r.thumbnail || ""))}`,
+      url: r.original || r.thumbnail || "",
+      thumb: r.thumbnail || r.original || "",
+      width: r.original_width,
+      height: r.original_height,
+      alt: r.title || query,
+      source: "serpapi",
+      credit: r.source ? `${r.source}` : "Google Images",
+    }))
+    // Keep only sizable originals (unknown dimensions pass — better than dropping).
+    .filter((p: StockPhoto) => p.url && (!p.width || !p.height || Math.max(p.width, p.height) >= MIN_DIMENSION))
+    .slice(0, PER_PAGE);
 }
 
 // Stable small hash for ids when SerpApi omits a position.

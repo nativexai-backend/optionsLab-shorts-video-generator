@@ -11,6 +11,7 @@ import { LibraryModal } from "./LibraryModal";
 import { UsageModal } from "./UsageModal";
 import { ChartModal } from "./ChartModal";
 import { PronunciationModal } from "./PronunciationModal";
+import { ToolbarMenu } from "./ToolbarMenu";
 
 const PlayerPanel = lazy(() => import("./PlayerPanel").then(m => ({ default: m.PlayerPanel })));
 import {
@@ -185,7 +186,6 @@ export const Editor: React.FC = () => {
   // falls back to Auto if no Anthropic key is configured (see the health check).
   const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider>("claude");
   const [availableProviders, setAvailableProviders] = useState<AnalysisProvider[]>(["auto", "claude", "rules"]);
-  const [lastUsedProvider, setLastUsedProvider] = useState<string | null>(null);
   const [visualPace, setVisualPace] = useState<PaceName>("single");
   // The raw (un-paced) beats from the last analysis, so the pace control can
   // re-split instantly without another API call.
@@ -221,6 +221,12 @@ export const Editor: React.FC = () => {
 
   // ── Re-analyze confirmation (destructive — needs a real dialog, not a toast) ──
   const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false);
+  useEffect(() => {
+    if (!showReanalyzeConfirm) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setShowReanalyzeConfirm(false); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [showReanalyzeConfirm]);
 
   // ── Undo/redo history ──
   const undoStack = useRef<HistorySnapshot[]>([]);
@@ -1398,7 +1404,6 @@ export const Editor: React.FC = () => {
     if (!scriptText.trim() || isAnalyzingScript) return;
     setIsAnalyzingScript(true);
     setSceneSuggestions([]);
-    setLastUsedProvider(null);
     try {
       const res = await fetch("/api/analyze-script", {
         method: "POST",
@@ -1414,7 +1419,6 @@ export const Editor: React.FC = () => {
       rawSuggestionsRef.current = beats;
       setSceneSuggestions(paceBeats(beats, visualPace));
       setShotListStale(false);
-      if (data.method) setLastUsedProvider(data.method);
       if (data.available) setAvailableProviders(data.available);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Script analysis failed", "error");
@@ -1461,10 +1465,10 @@ export const Editor: React.FC = () => {
 
   // Add an animated chart as a timeline segment — replaces the selected slot if
   // one is selected, otherwise appends a new ~5s segment to fill on the timeline.
-  const handleAddChart = useCallback((chart: ChartSpec) => {
+  const handleAddChart = useCallback((chart: ChartSpec, targetIndex: number | null) => {
     const placeholder = (i: number) => new File([], `chart-${i}.png`, { type: "image/png" });
-    if (selectedImageIndex != null && selectedImageIndex < images.length) {
-      const idx = selectedImageIndex;
+    if (targetIndex != null && targetIndex < images.length) {
+      const idx = targetIndex;
       setImages((prev) => prev.map((img, i) => {
         if (i !== idx) return img;
         if (img.src) URL.revokeObjectURL(img.src);
@@ -1487,7 +1491,7 @@ export const Editor: React.FC = () => {
         return next;
       });
     }
-  }, [selectedImageIndex, images, durationInSeconds, persistFile]);
+  }, [images, durationInSeconds, persistFile]);
 
   // ── Per-scene prompt refinement (one new variation per click, optionally steered) ──
   const [refiningPromptId, setRefiningPromptId] = useState<string | null>(null);
@@ -1852,7 +1856,6 @@ export const Editor: React.FC = () => {
           refiningPromptId={refiningPromptId}
           analysisProvider={analysisProvider}
           availableProviders={availableProviders}
-          lastUsedProvider={lastUsedProvider}
           onAnalysisProviderChange={setAnalysisProvider}
           visualPace={visualPace}
           onVisualPaceChange={handleVisualPaceChange}
@@ -1860,83 +1863,80 @@ export const Editor: React.FC = () => {
       </aside>
       <main aria-label="Video preview" className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar: avatar/voice info + export */}
-        <div className="flex items-center gap-4 px-4 py-2 border-b border-zinc-800 flex-shrink-0">
-          {avatarPath && (() => {
-            const name = avatarPath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
-            const display = name.charAt(0).toUpperCase() + name.slice(1);
-            return (
-              <div className="flex items-center gap-1.5">
-                <div className="w-5 h-5 rounded-full overflow-hidden border border-zinc-600 flex-shrink-0">
-                  <img src={avatarPath} alt="" className="w-full h-full object-cover" />
-                </div>
-                <span className="text-[11px] text-zinc-500">Avatar:</span>
-                <span className="text-[11px] text-zinc-300 font-medium">{display}</span>
-              </div>
-            );
-          })()}
-          {activeVoiceName && (() => {
-            const avatarName = avatarPath?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
-            const currentAvatar = avatarName.charAt(0).toUpperCase() + avatarName.slice(1);
-            const mismatch = avatarPath && activeVoiceName !== currentAvatar;
-            return (
-              <div className="flex items-center gap-1.5">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-zinc-500 flex-shrink-0">
-                  <path d="M12 3a9 9 0 00-9 9v4a3 3 0 003 3h1a1 1 0 001-1v-5a1 1 0 00-1-1H6a7 7 0 0114 0h-1a1 1 0 00-1 1v5a1 1 0 001 1h1a3 3 0 003-3v-4a9 9 0 00-9-9z" fill="currentColor"/>
-                </svg>
-                <span className="text-[11px] text-zinc-500">Voice:</span>
-                <span className={`text-[11px] font-medium ${mismatch ? "text-amber-400" : "text-zinc-300"}`}>{activeVoiceName}</span>
-                {mismatch && <span className="text-[10px] text-amber-500/80 ml-0.5">mismatch</span>}
-              </div>
-            );
-          })()}
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => setShowPronunciationModal(true)}
-              title="Fix how the voice pronounces specific terms"
-              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
-                <path d="M7 12h2l1.5 4 3-8L16 12h1" />
-              </svg>
-              Pronounce
-            </button>
+        <div className="flex items-center gap-3 px-4 py-2 border-b border-zinc-800 flex-shrink-0">
+          {/* Status cluster — muted, not actionable (keeps only the mismatch warning loud) */}
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500 min-w-0">
+            {avatarPath && (() => {
+              const name = avatarPath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
+              const display = name.charAt(0).toUpperCase() + name.slice(1);
+              return (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full overflow-hidden border border-zinc-700 flex-shrink-0">
+                    <img src={avatarPath} alt="" className="w-full h-full object-cover" />
+                  </span>
+                  <span className="text-zinc-400">{display}</span>
+                </span>
+              );
+            })()}
+            {activeVoiceName && (() => {
+              const avatarName = avatarPath?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
+              const currentAvatar = avatarName.charAt(0).toUpperCase() + avatarName.slice(1);
+              const mismatch = avatarPath && activeVoiceName !== currentAvatar;
+              return (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-zinc-600">·</span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-zinc-600 flex-shrink-0">
+                    <path d="M12 3a9 9 0 00-9 9v4a3 3 0 003 3h1a1 1 0 001-1v-5a1 1 0 00-1-1H6a7 7 0 0114 0h-1a1 1 0 00-1 1v5a1 1 0 001 1h1a3 3 0 003-3v-4a9 9 0 00-9-9z" fill="currentColor"/>
+                  </svg>
+                  <span className={mismatch ? "text-amber-400" : "text-zinc-400"}>{activeVoiceName}</span>
+                  {mismatch && <span className="text-[10px] text-amber-500/80" title="Voice doesn't match the selected avatar">mismatch</span>}
+                </span>
+              );
+            })()}
+          </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            {/* Chart — add an animated stock chart to the timeline */}
             <button
               onClick={() => setShowChartModal(true)}
               title="Add an animated stock chart"
               className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 3v18h18" />
-                <path d="M7 14l3-3 3 3 4-5" />
-              </svg>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 4-5" /></svg>
               Chart
             </button>
-            <button
-              onClick={() => setShowUsageModal(true)}
-              title="View API usage per project"
-              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="20" x2="18" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="6" y1="20" x2="6" y2="14" />
-              </svg>
-              Usage
-            </button>
+            {/* Library — icon only */}
             <button
               onClick={() => setShowLibraryModal(true)}
-              title="Browse and manage the image library"
-              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
+              title="Image library"
+              aria-label="Image library"
+              className="px-2 py-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="7" height="7" rx="1" />
                 <rect x="14" y="3" width="7" height="7" rx="1" />
                 <rect x="3" y="14" width="7" height="7" rx="1" />
                 <rect x="14" y="14" width="7" height="7" rx="1" />
               </svg>
-              Library
             </button>
+            {/* Settings — rare config + info */}
+            <ToolbarMenu
+              title="Settings"
+              icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>}
+              items={[
+                {
+                  label: "Pronunciation",
+                  icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h2l1.5 4 3-8L16 12h1" /></svg>,
+                  onClick: () => setShowPronunciationModal(true),
+                },
+                {
+                  label: "API usage",
+                  icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>,
+                  onClick: () => setShowUsageModal(true),
+                },
+              ]}
+            />
+            <div className="w-px h-5 bg-zinc-800 mx-1" />
+            {/* Output lane */}
             <button
               onClick={() => setShowThumbnailModal(true)}
               title="Create a cover thumbnail from a project image"
@@ -2006,6 +2006,8 @@ export const Editor: React.FC = () => {
         open={showChartModal}
         onClose={() => setShowChartModal(false)}
         onAddChart={handleAddChart}
+        slotCount={images.length}
+        selectedIndex={selectedImageIndex}
         showToast={showToast}
       />
 

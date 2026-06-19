@@ -11,7 +11,9 @@ import { searchTickers, findTicker, type TickerInfo } from "../lib/tickers";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onAddChart: (spec: ChartSpec) => void;
+  onAddChart: (spec: ChartSpec, targetIndex: number | null) => void;
+  slotCount: number; // existing timeline image slots, for the "Add to" picker
+  selectedIndex: number | null; // currently-selected slot (pre-selects the target)
   showToast: (message: string, type: "error" | "success") => void;
 }
 
@@ -24,6 +26,15 @@ const TRENDS: { value: ChartTrend; label: string }[] = [
 
 const PREVIEW_W = 248;
 const PREVIEW_H = 441;
+
+// Build a candle series from a plain list of values (each value is a close;
+// open = previous close), so users can plot their own numbers without a feed.
+function candlesFromValues(vals: number[]): Candle[] {
+  return vals.map((c, i) => {
+    const o = i === 0 ? vals[0] : vals[i - 1];
+    return { o, h: Math.max(o, c), l: Math.min(o, c), c };
+  });
+}
 
 // Approximate, evenly-spaced x-axis labels for the chosen range. Synthetic data
 // has no real timestamps, so these are illustrative (real dates arrive with a
@@ -99,13 +110,18 @@ const TickerCombobox: React.FC<{
   );
 };
 
-export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, showToast }) => {
+export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCount, selectedIndex, showToast }) => {
+  // Which slot the chart replaces — null means a new segment at the end.
+  const [targetIndex, setTargetIndex] = useState<number | null>(selectedIndex);
+  useEffect(() => { if (open) setTargetIndex(selectedIndex); }, [open, selectedIndex]);
   const [ticker, setTicker] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [range, setRange] = useState<ChartRange>("1D");
   const [trend, setTrend] = useState<ChartTrend>("up");
   const [chartType, setChartType] = useState<ChartType>("line");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [dataMode, setDataMode] = useState<"trend" | "custom">("trend");
+  const [customValues, setCustomValues] = useState("");
   const endDate = useMemo(() => new Date(), []);
   const today = useMemo(() => endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), [endDate]);
   const xLabels = useMemo(() => axisLabels(range, endDate), [range, endDate]);
@@ -176,6 +192,17 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, showToa
 
   const fetchData = useCallback(async (sym?: string) => {
     const symbol = (sym ?? ticker).trim().toUpperCase() || "STOCK";
+
+    // Custom mode: plot the user's own numbers — no feed, no synthetic shaping.
+    if (dataMode === "custom") {
+      const vals = customValues.split(/[\s,]+/).map(Number).filter((n) => Number.isFinite(n));
+      if (vals.length < 2) { showToast("Enter at least 2 numbers", "error"); return; }
+      setCandles(candlesFromValues(vals));
+      setSource("synthetic");
+      if (symbol && symbol !== "STOCK") fetchLogo(symbol, theme);
+      return;
+    }
+
     setLoading(true);
     try {
       const info = findTicker(symbol);
@@ -192,7 +219,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, showToa
     } finally {
       setLoading(false);
     }
-  }, [ticker, range, trend, theme, fetchLogo, showToast]);
+  }, [ticker, range, trend, theme, dataMode, customValues, fetchLogo, showToast]);
 
   // Selecting a ticker auto-fills the company name and immediately loads its chart.
   const handlePick = useCallback((info: TickerInfo) => {
@@ -203,10 +230,10 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, showToa
 
   const handleAdd = useCallback(() => {
     if (!spec) return;
-    onAddChart(spec);
-    showToast("Chart added to timeline", "success");
+    onAddChart(spec, targetIndex);
+    showToast(targetIndex == null ? "Chart added as a new slot" : `Chart added to slot ${targetIndex + 1}`, "success");
     onClose();
-  }, [spec, onAddChart, showToast, onClose]);
+  }, [spec, targetIndex, onAddChart, showToast, onClose]);
 
   if (!open) return null;
 
@@ -226,7 +253,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, showToa
           </div>
           {source && (
             <p className="text-[10px] text-zinc-500 mt-1.5 text-center">
-              {source === "real" ? "Real market data" : "Synthetic (no data key — shape from trend)"}
+              {source === "real" ? "Real market data" : dataMode === "custom" ? "Your custom values" : "Synthetic (shape from trend)"}
             </p>
           )}
         </div>
@@ -254,28 +281,57 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, showToa
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs text-zinc-400 mb-1 block">Range</label>
-              <select value={range} onChange={(e) => setRange(e.target.value as ChartRange)} className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300">
-                {CHART_RANGES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-zinc-400 mb-1 block">Trend*</label>
-              <select value={trend} onChange={(e) => setTrend(e.target.value as ChartTrend)} className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300">
-                {TRENDS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
+          {/* Data source: shape from a trend, or plot your own numbers */}
+          <div>
+            <label className="text-xs text-zinc-400 mb-1 block">Data</label>
+            <div className="flex items-center gap-0.5 bg-zinc-800 rounded-md p-0.5">
+              {([["trend", "Trend"], ["custom", "Custom numbers"]] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setDataMode(val)}
+                  className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${dataMode === val ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
-          <p className="text-[9px] text-zinc-600 -mt-1.5">*Trend shapes the chart only when there&apos;s no market-data key.</p>
+
+          {dataMode === "custom" ? (
+            <div>
+              <label className="text-xs text-zinc-400 mb-1 block">Values</label>
+              <textarea
+                value={customValues}
+                onChange={(e) => setCustomValues(e.target.value)}
+                placeholder="e.g. 100, 102, 99, 108, 121, 118, 130"
+                rows={3}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500 resize-none"
+              />
+              <p className="text-[10px] text-zinc-600 mt-1">Comma, space, or line separated. Each value is a point; the price &amp; change come from your numbers.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Range</label>
+                <select value={range} onChange={(e) => setRange(e.target.value as ChartRange)} className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300">
+                  {CHART_RANGES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-zinc-400 mb-1 block">Trend</label>
+                <select value={trend} onChange={(e) => setTrend(e.target.value as ChartTrend)} className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300">
+                  {TRENDS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
 
           <button
             onClick={() => fetchData()}
             disabled={loading}
             className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 rounded-lg text-xs font-medium text-white transition-colors"
           >
-            {loading ? "Loading…" : candles ? "Reload data" : "Load data"}
+            {loading ? "Loading…" : dataMode === "custom" ? "Plot values" : candles ? "Reload data" : "Load data"}
           </button>
 
           {candles && (
@@ -298,7 +354,21 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, showToa
             </>
           )}
 
-          <div className="mt-auto flex gap-2 justify-end pt-2">
+          <div className="mt-auto">
+            <label className="text-xs text-zinc-400 mb-1 block">Add to</label>
+            <select
+              value={targetIndex == null ? "" : String(targetIndex)}
+              onChange={(e) => setTargetIndex(e.target.value === "" ? null : Number(e.target.value))}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300"
+            >
+              <option value="">New slot (append)</option>
+              {Array.from({ length: slotCount }, (_, i) => (
+                <option key={i} value={i}>Replace slot {i + 1}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex gap-2 justify-end pt-1">
             <button onClick={onClose} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">Cancel</button>
             <button
               onClick={handleAdd}

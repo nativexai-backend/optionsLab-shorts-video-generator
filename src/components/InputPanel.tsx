@@ -8,6 +8,7 @@ import { PACE_OPTIONS, PaceName } from "../lib/scene-timing";
 import type { LibraryImage } from "../lib/library-types";
 import { searchLibrary, libraryFileUrl } from "../lib/library-client";
 import { ImageSuggestModal } from "./ImageSuggestModal";
+import { Button } from "./Button";
 
 const SCRIPT_CHAR_LIMIT = 5000;
 const SPOKEN_WORDS_PER_SECOND = 2.5;
@@ -96,7 +97,6 @@ interface Props {
   refiningPromptId: string | null;
   analysisProvider: "groq" | "claude" | "rules" | "auto";
   availableProviders: ("groq" | "claude" | "rules" | "auto")[];
-  lastUsedProvider: string | null;
   onAnalysisProviderChange: (provider: "groq" | "claude" | "rules" | "auto") => void;
   visualPace: PaceName;
   onVisualPaceChange: (pace: PaceName) => void;
@@ -174,7 +174,7 @@ function TakeRow({ take, isActive, onUse, onDelete }: { take: { id: string; src:
         </button>
         <div className="flex-1 min-w-0 flex items-center gap-1.5">
           <span className={`text-[11px] font-medium whitespace-nowrap ${isActive ? "text-green-400" : "text-zinc-300"}`}>{take.label}</span>
-          {isActive && <span className="text-[9px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold leading-none">In video</span>}
+          {isActive && <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold leading-none">In video</span>}
         </div>
         {!isActive && (
           <button
@@ -202,15 +202,6 @@ function TakeRow({ take, isActive, onUse, onDelete }: { take: { id: string; src:
 
 /* ---- Shot list ---- */
 
-const CATEGORY_COLORS: Record<string, string> = {
-  person: "bg-blue-500/20 text-blue-400",
-  logo: "bg-green-500/20 text-green-400",
-  chart: "bg-amber-500/20 text-amber-400",
-  product: "bg-cyan-500/20 text-cyan-400",
-  "b-roll": "bg-zinc-500/20 text-zinc-400",
-  "text-overlay": "bg-purple-500/20 text-purple-400",
-};
-
 const PRIORITY_INDICATOR: Record<string, { dot: string; label: string }> = {
   essential: { dot: "bg-red-400", label: "Essential" },
   recommended: { dot: "bg-yellow-400", label: "Recommended" },
@@ -224,7 +215,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
   const [showRefineInput, setShowRefineInput] = useState(false);
   const [guidance, setGuidance] = useState("");
   const [browseOpen, setBrowseOpen] = useState(false);
-  const catColor = CATEGORY_COLORS[scene.category] ?? CATEGORY_COLORS["b-roll"];
+  const [expanded, setExpanded] = useState(false);
   const priority = PRIORITY_INDICATOR[scene.priority] ?? PRIORITY_INDICATOR.recommended;
 
   // Library matches for this scene — searched once when the card appears.
@@ -253,33 +244,46 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
 
   return (
     <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-md p-2 text-xs">
-      <div className="flex items-start gap-1.5">
+      {/* Resting row: index · description · caption · primary action */}
+      <div className="flex items-start gap-2">
+        <span className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
+          {index + 1}
+        </span>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-            <span className={`w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
-              {index + 1}
-            </span>
-            <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wider ${catColor}`}>
-              {scene.category}
-            </span>
-            {scene.partCount != null && scene.partCount > 1 && (
-              <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-medium bg-zinc-700/70 text-zinc-300" title="This beat was split into multiple shots for pacing">
-                shot {scene.part}/{scene.partCount}
-              </span>
-            )}
-            <span className="inline-flex items-center gap-1 text-[9px] text-zinc-500">
-              <span className={`w-1.5 h-1.5 rounded-full ${priority.dot}`} />
-              {priority.label}
-            </span>
-          </div>
           <p className="text-zinc-200 leading-relaxed line-clamp-2">{scene.description}</p>
-          <div className="flex items-center gap-1 mt-1.5">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? "Hide details" : "Show details & image options"}
+            className="mt-0.5 flex items-center gap-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${priority.dot}`} title={priority.label} />
+            <span>{scene.category}</span>
+            {scene.partCount != null && scene.partCount > 1 && (
+              <span className="text-zinc-600" title="Split from one beat for pacing">· shot {scene.part}/{scene.partCount}</span>
+            )}
+            <span className="text-zinc-600 truncate" title={scene.animationReason}>· {scene.suggestedAnimation}</span>
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}><polyline points="6 9 12 15 18 9" /></svg>
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onApply}
+          className="flex-shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-700 rounded text-[10px] font-medium text-white transition-colors whitespace-nowrap"
+          title={`${scene.suggestedAnimation} — ${scene.animationReason}`}
+        >
+          + Timeline
+        </button>
+      </div>
+
+      {/* Expanded: secondary actions, details, image sourcing */}
+      {expanded && (
+        <div className="mt-2 pt-2 border-t border-zinc-700/40 flex flex-col gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => setShowScript(!showScript)}
-              className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${
-                showScript ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/40"
-              }`}
+              className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${showScript ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
             >
               Script
             </button>
@@ -288,16 +292,14 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
                 <button
                   type="button"
                   onClick={() => setShowPrompt(!showPrompt)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${
-                    showPrompt ? "bg-violet-600/30 text-violet-200" : "text-violet-400/80 hover:text-violet-300 hover:bg-violet-600/15"
-                  }`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${showPrompt ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
                 >
                   Prompt
                 </button>
                 <button
                   type="button"
                   onClick={copyPrompt}
-                  className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap text-violet-400/80 hover:text-violet-300 hover:bg-violet-600/15 transition-colors"
+                  className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40 transition-colors"
                   title="Copy image prompt to clipboard"
                 >
                   {copied ? "Copied ✓" : "Copy"}
@@ -306,23 +308,29 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
                   type="button"
                   onClick={() => setShowRefineInput((v) => !v)}
                   disabled={isRefining}
-                  className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors disabled:opacity-50 ${
-                    showRefineInput ? "bg-violet-600/30 text-violet-200" : "text-violet-400/80 hover:text-violet-300 hover:bg-violet-600/15"
-                  }`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors disabled:opacity-50 ${showRefineInput ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
                   title="Rewrite this prompt with AI — optionally tell it what you want"
                 >
                   {isRefining ? "Refining…" : "✦ Refine"}
                 </button>
               </>
             )}
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label="Delete block"
+              title="Delete this block (removes it from the shot list and timeline)"
+              className="ml-auto w-5 h-5 flex items-center justify-center rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-700/60 transition-colors"
+            >
+              <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
+            </button>
           </div>
+
           {showScript && (
-            <p className="text-[10px] text-zinc-500 mt-1 leading-relaxed italic">
-              &ldquo;{scene.scriptSegment}&rdquo;
-            </p>
+            <p className="text-[10px] text-zinc-500 leading-relaxed italic">&ldquo;{scene.scriptSegment}&rdquo;</p>
           )}
           {showRefineInput && (
-            <div className="flex items-center gap-1 mt-1">
+            <div className="flex items-center gap-1">
               <input
                 type="text"
                 value={guidance}
@@ -351,43 +359,14 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
             </div>
           )}
           {showPrompt && scene.imagePrompt && (
-            <div className={`mt-1 bg-zinc-900/60 border rounded px-2 py-1.5 transition-colors ${isRefining ? "border-violet-500/50" : "border-zinc-700/40"}`}>
+            <div className={`bg-zinc-900/60 border rounded px-2 py-1.5 transition-colors ${isRefining ? "border-violet-500/50" : "border-zinc-700/40"}`}>
               <p className={`text-[10px] leading-relaxed select-all ${isRefining ? "text-zinc-500" : "text-zinc-300"}`}>{scene.imagePrompt}</p>
             </div>
           )}
-        </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-          <button
-            type="button"
-            onClick={onDelete}
-            aria-label="Delete block"
-            title="Delete this block (removes it from the shot list and timeline)"
-            className="w-5 h-5 flex items-center justify-center rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-700/60 transition-colors"
-          >
-            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
-          </button>
-          <button
-            type="button"
-            onClick={onApply}
-            className="px-2 py-1 bg-violet-600 hover:bg-violet-700 rounded text-[10px] font-medium text-white transition-colors whitespace-nowrap"
-            title={`${scene.suggestedAnimation} — ${scene.animationReason}`}
-          >
-            + Timeline
-          </button>
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5 mt-1.5">
-        <span className="text-[9px] text-zinc-500 bg-zinc-700/50 px-1.5 py-0.5 rounded" title={scene.animationReason}>
-          {scene.suggestedAnimation}
-        </span>
-      </div>
 
-      {/* Image source: a few library matches + the stock-photo / library browser */}
-      <div className="mt-1.5 pt-1.5 border-t border-zinc-700/40">
-        <div className="flex items-center gap-1.5">
-          {matches.length > 0 ? (
-            <>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400 flex-shrink-0"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+          {/* Image sourcing: library matches + stock browser */}
+          <div className="flex items-center gap-1.5">
+            {matches.length > 0 && (
               <div className="flex gap-1 overflow-x-auto pb-0.5">
                 {matches.slice(0, 3).map((img) => (
                   <button
@@ -395,27 +374,25 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
                     type="button"
                     onClick={() => onPickFromLibrary(img)}
                     title={`Use "${img.filename}" — ${img.tags.join(", ")}`}
-                    className="flex-shrink-0 w-9 h-12 rounded overflow-hidden border border-zinc-700 hover:border-green-500 transition-colors"
+                    className="flex-shrink-0 w-9 h-12 rounded overflow-hidden border border-zinc-700 hover:border-zinc-400 transition-colors"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
                   </button>
                 ))}
               </div>
-            </>
-          ) : (
-            <span className="text-[9px] text-zinc-500 flex-shrink-0">No library match yet</span>
-          )}
-          <button
-            type="button"
-            onClick={() => setBrowseOpen(true)}
-            className="ml-auto flex-shrink-0 flex items-center gap-1 text-[9px] px-2 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 transition-colors font-medium"
-          >
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-            Find photos
-          </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setBrowseOpen(true)}
+              className="ml-auto flex-shrink-0 flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 transition-colors font-medium"
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+              Find photos
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <ImageSuggestModal
         open={browseOpen}
@@ -514,7 +491,6 @@ const InputPanelInner: React.FC<Props> = ({
   refiningPromptId,
   analysisProvider,
   availableProviders,
-  lastUsedProvider,
   onAnalysisProviderChange,
   visualPace,
   onVisualPaceChange,
@@ -730,7 +706,7 @@ const InputPanelInner: React.FC<Props> = ({
                     {sortedProjects.map((p, i) => (
                       <React.Fragment key={p.id}>
                         {(i === 0 || dayLabel(p.modifiedAt) !== dayLabel(sortedProjects[i - 1].modifiedAt)) && (
-                          <div className="px-3 pt-2 pb-1 text-[9px] uppercase tracking-wider text-zinc-500 font-semibold border-b border-zinc-800/60">
+                          <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold border-b border-zinc-800/60">
                             {dayLabel(p.modifiedAt)}
                           </div>
                         )}
@@ -886,7 +862,10 @@ const InputPanelInner: React.FC<Props> = ({
             {!avatarPath && scriptText.trim() && (
               <p className="text-[11px] text-amber-400">Select a presenter above to generate the voiceover.</p>
             )}
-            <button
+            <Button
+              variant="primary"
+              fullWidth
+              className="py-2"
               type="button"
               onClick={() => onGenerateAudio(scriptText)}
               disabled={isGeneratingAudio || isTranscribing || !scriptText.trim() || !avatarPath || scriptOverLimit}
@@ -897,7 +876,6 @@ const InputPanelInner: React.FC<Props> = ({
                 isGeneratingAudio ? "Generating audio..." :
                 isTranscribing ? "Transcription in progress..." : undefined
               }
-              className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded-lg text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 flex items-center justify-center gap-2"
             >
               {isGeneratingAudio || isTranscribing ? (
                 <>
@@ -907,7 +885,7 @@ const InputPanelInner: React.FC<Props> = ({
               ) : (
                 audioTakes.length > 0 ? "Generate New Take" : "Generate Voiceover"
               )}
-            </button>
+            </Button>
 
             {audioTakes.length > 0 && (
               <div className="pt-1.5 border-t border-zinc-700/30">
@@ -992,12 +970,14 @@ const InputPanelInner: React.FC<Props> = ({
           {/* Shot list — AI scene suggestions from the script */}
           <div className="space-y-1.5 bg-zinc-900 rounded-lg p-2.5 border border-zinc-800">
             <div className="flex items-center gap-1.5">
-              <button
+              <Button
+                variant="primary"
+                size="sm"
+                className="flex-1"
                 type="button"
                 onClick={onAnalyzeScript}
                 disabled={isAnalyzingScript || !scriptText.trim()}
                 title={!scriptText.trim() ? "Write a script in step 1 first" : undefined}
-                className="flex-1 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-2"
               >
                 {isAnalyzingScript ? (
                   <>
@@ -1010,7 +990,7 @@ const InputPanelInner: React.FC<Props> = ({
                     Suggest Visuals from Script
                   </>
                 )}
-              </button>
+              </Button>
               <select
                 value={analysisProvider}
                 onChange={(e) => onAnalysisProviderChange(e.target.value as AnalysisProvider)}
@@ -1062,12 +1042,6 @@ const InputPanelInner: React.FC<Props> = ({
                   Re-analyze
                 </button>
               </div>
-            )}
-
-            {lastUsedProvider && sceneSuggestions.length > 0 && (
-              <span className="text-[9px] text-zinc-500 block">
-                Powered by <span className={lastUsedProvider === "rules" ? "text-zinc-400" : "text-violet-400"}>{lastUsedProvider === "groq" ? "Groq (Llama 3.3 70B)" : lastUsedProvider === "claude" ? "Claude (Haiku)" : "Rule-based"}</span>
-              </span>
             )}
 
             {sceneSuggestions.length > 0 && (
@@ -1170,11 +1144,13 @@ const InputPanelInner: React.FC<Props> = ({
           {transcript.length === 0 && (
             <p className="text-[11px] text-zinc-500">Captions appear automatically after you generate a voiceover. You can re-transcribe or fine-tune them here.</p>
           )}
-          <button
+          <Button
+            variant="primary"
+            fullWidth
+            className="py-2"
             onClick={onTranscribe}
             disabled={!audioFile || isTranscribing}
             title={!audioFile ? "Generate a voiceover first" : isTranscribing ? "Transcription in progress..." : undefined}
-            className="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded-lg text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 flex items-center justify-center gap-2"
           >
             {isTranscribing ? (
               <>
@@ -1184,7 +1160,7 @@ const InputPanelInner: React.FC<Props> = ({
             ) : (
               transcript.length > 0 ? "Re-transcribe from Audio" : "Transcribe from Audio"
             )}
-          </button>
+          </Button>
 
           {/* Editable caption view — shown when transcript exists */}
           {transcript.length > 0 && (
@@ -1243,8 +1219,13 @@ const InputPanelInner: React.FC<Props> = ({
             </div>
           </details>
 
-          {/* Caption style controls */}
-          <div className="border-t border-zinc-800 pt-2 mt-2 space-y-3">
+          {/* Caption style controls — set-once, collapsed to keep the editor front */}
+          <details className="group border-t border-zinc-800 pt-2 mt-2">
+            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-[11px] text-zinc-400 hover:text-zinc-200 select-none">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
+              Caption styling — font, position, colors
+            </summary>
+            <div className="space-y-3 mt-2">
             <SliderControl
               label="Font Size"
               value={style.fontSize}
@@ -1289,7 +1270,8 @@ const InputPanelInner: React.FC<Props> = ({
                 onChange={(v) => onStyleChange({ shadowColor: v })}
               />
             </div>
-          </div>
+            </div>
+          </details>
         </div>
       </Section>
 
@@ -1306,9 +1288,13 @@ const InputPanelInner: React.FC<Props> = ({
         onToggle={() => onToggleSection("branding")}
       >
         <div className="space-y-3">
-          {/* Avatar overlay placement */}
-          <div className="space-y-2 bg-zinc-900 rounded-lg p-2.5 border border-zinc-800">
-            <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium block">Avatar Overlay</label>
+          {/* Avatar overlay placement — set-once brand defaults, collapsed */}
+          <details className="group bg-zinc-900 rounded-lg border border-zinc-800">
+            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-[10px] uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
+              Avatar Overlay
+            </summary>
+            <div className="space-y-2 px-2.5 pb-2.5">
             {!avatarPath && (
               <p className="text-[10px] text-zinc-500">Select a presenter in step 1 to see the avatar overlay.</p>
             )}
@@ -1362,7 +1348,8 @@ const InputPanelInner: React.FC<Props> = ({
                 ))}
               </select>
             </div>
-          </div>
+            </div>
+          </details>
 
           {/* Intro */}
           <div className="space-y-2">
@@ -2141,7 +2128,7 @@ function MiniTimeline({ images, duration }: { images: ImageSegment[]; duration: 
             style={{ left: `${left}%`, width: `${Math.max(width, 0.5)}%` }}
             title={`Image ${i + 1}: ${img.startTime.toFixed(1)}s – ${img.endTime.toFixed(1)}s`}
           >
-            <span className="absolute inset-0 flex items-center justify-center text-[9px] text-white font-bold drop-shadow">
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-bold drop-shadow">
               {i + 1}
             </span>
           </div>
@@ -2149,8 +2136,8 @@ function MiniTimeline({ images, duration }: { images: ImageSegment[]; duration: 
       })}
       {/* Time markers */}
       <div className="absolute bottom-0 left-0 right-0 flex justify-between px-1">
-        <span className="text-[8px] text-zinc-400">0s</span>
-        <span className="text-[8px] text-zinc-400">{duration.toFixed(0)}s</span>
+        <span className="text-[10px] text-zinc-400">0s</span>
+        <span className="text-[10px] text-zinc-400">{duration.toFixed(0)}s</span>
       </div>
     </div>
   );
@@ -2290,7 +2277,7 @@ function DraggableImageCard({
 
       {/* Name/description + Animation */}
       <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className={`w-4 h-4 rounded flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
+        <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
           {index + 1}
         </span>
         {isChart ? (

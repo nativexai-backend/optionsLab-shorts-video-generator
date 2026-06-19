@@ -113,13 +113,13 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
   const pickStock = useCallback(async (photo: StockPhoto) => {
     if (savingId) return;
     setSavingId(photo.id);
-    const record = await importStockPhoto(photo, {
+    const { image: record, usedFallback } = await importStockPhoto(photo, {
       tags, description: scene.description, category: scene.category, projectId,
     });
     setSavingId(null);
     if (!record) { showToast("Couldn't import that photo", "error"); return; }
     onPick(record);
-    showToast("Photo saved to library & added", "success");
+    showToast(usedFallback ? "Added — but only a low-res version was available" : "Photo saved to library & added", "success");
     onClose();
   }, [savingId, tags, scene.description, scene.category, projectId, onPick, showToast, onClose]);
 
@@ -244,7 +244,7 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p.thumb} alt={p.alt} className="w-full h-full object-cover" loading="lazy" />
-                    <span className="absolute top-0.5 left-0.5 px-1 py-0.5 rounded text-[8px] font-medium bg-black/60 text-white capitalize">
+                    <span className="absolute top-0.5 left-0.5 px-1 py-0.5 rounded text-[10px] font-medium bg-black/60 text-white capitalize">
                       {p.source === "serpapi" ? "web" : "pexels"}
                     </span>
                     {savingId === p.id && (

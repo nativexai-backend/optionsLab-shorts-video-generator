@@ -107,7 +107,7 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
-                    <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[8px] text-zinc-300 px-1 py-0.5 truncate text-left">
+                    <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[10px] text-zinc-300 px-1 py-0.5 truncate text-left">
                       {img.tags.slice(0, 2).join(", ") || img.filename}
                     </span>
                   </button>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readUsage, type ApiUsage, type UsageApi } from "@/lib/usage-storage";
+import { readUsageStore, dayKey, type ApiUsage, type UsageApi, type UsageData } from "@/lib/usage-storage";
 import { readProjectsIndex } from "@/lib/server-storage";
 
 const APIS: UsageApi[] = ["elevenlabs", "groq", "claude", "whisper"];
@@ -21,14 +21,11 @@ function add(into: ApiUsage, from?: ApiUsage) {
   if (from.seconds) into.seconds = (into.seconds ?? 0) + from.seconds;
 }
 
-// GET /api/usage → per-project usage joined with names, plus overall totals
-export async function GET() {
-  const [usage, projects] = await Promise.all([readUsage(), readProjectsIndex()]);
-  const names = new Map(projects.map((p) => [p.id, p.name]));
-
+// Build project rows + totals for one slice of usage (all-time, or a single day).
+function buildRows(usage: UsageData, names: Map<string, string>) {
   const totals = emptyUsage();
-  const rows = Object.entries(usage).map(([projectId, perApi]) => {
-    const row: Record<UsageApi, ApiUsage> = emptyUsage();
+  const projects = Object.entries(usage).map(([projectId, perApi]) => {
+    const row = emptyUsage();
     for (const api of APIS) {
       add(row[api], perApi[api]);
       add(totals[api], perApi[api]);
@@ -39,9 +36,30 @@ export async function GET() {
       usage: row,
     };
   });
-
   // Most-used projects first (by ElevenLabs credits, the cost driver)
-  rows.sort((a, b) => (b.usage.elevenlabs.characters ?? 0) - (a.usage.elevenlabs.characters ?? 0));
+  projects.sort((a, b) => (b.usage.elevenlabs.characters ?? 0) - (a.usage.elevenlabs.characters ?? 0));
+  return { projects, totals };
+}
 
-  return NextResponse.json({ projects: rows, totals });
+// GET /api/usage → all-time overview + a per-day breakdown (today first).
+export async function GET() {
+  const [store, projects] = await Promise.all([readUsageStore(), readProjectsIndex()]);
+  const names = new Map(projects.map((p) => [p.id, p.name]));
+
+  const allTime = buildRows(store.byProject, names);
+
+  // Always surface today first, even with no usage yet, so "today" is explicit.
+  const today = dayKey();
+  const dates = new Set(Object.keys(store.byDay));
+  dates.add(today);
+  const days = [...dates]
+    .sort((a, b) => (a < b ? 1 : -1)) // newest first
+    .map((date) => ({ date, ...buildRows(store.byDay[date] ?? {}, names) }));
+
+  return NextResponse.json({
+    projects: allTime.projects, // all-time per-project detail
+    totals: allTime.totals, // all-time overview cards (unchanged)
+    today,
+    days, // [{ date, projects, totals }], today first
+  });
 }
