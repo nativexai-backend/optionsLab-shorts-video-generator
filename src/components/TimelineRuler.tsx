@@ -50,7 +50,7 @@ export const TimelineRuler: React.FC<Props> = ({
           className={`w-px ${isMajor ? "h-3 bg-zinc-500" : "h-2 bg-zinc-700"}`}
         />
         {isMajor && (
-          <span className="absolute top-3 left-0 -translate-x-1/2 text-[10px] text-zinc-500 select-none whitespace-nowrap">
+          <span className="absolute top-3 left-0 -translate-x-1/2 text-micro text-zinc-500 select-none whitespace-nowrap">
             {formatTime(t)}
           </span>
         )}

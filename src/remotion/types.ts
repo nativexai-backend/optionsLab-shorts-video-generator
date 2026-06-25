@@ -149,6 +149,11 @@ export const VideoStyleSchema = z.object({
   avatarPosition: z.enum(["bottom-right", "bottom-left", "top-right", "top-left", "bottom-center"]).default("bottom-right"),
   badgePosition: z.enum(["bottom-left", "bottom-right", "top-left", "top-right"]).default("top-left"),
   visualizerStyle: z.enum(["pulse", "wave", "bars", "glow"]).default("bars"),
+  // Caption motion: "clean" = today's quick group fade (with a smoothed
+  // highlight sweep); "dynamic" = staggered per-word spring pop-in + a gentle
+  // lift on the word being spoken. Defaults to "clean" so existing projects
+  // render unchanged.
+  captionAnimation: z.enum(["clean", "dynamic"]).default("clean"),
 });
 
 export type VideoStyle = z.infer<typeof VideoStyleSchema>;
@@ -166,6 +171,7 @@ export const DEFAULT_STYLE: VideoStyle = {
   avatarPosition: "bottom-right",
   badgePosition: "top-left",
   visualizerStyle: "bars",
+  captionAnimation: "clean",
 };
 
 // Helper to get avatar CSS positioning from position name

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { IconButton, Chip } from "./IconButton";
 import type { LibraryImage } from "../lib/library-types";
 import { searchLibrary, updateLibraryImage, deleteLibraryImage, libraryFileUrl } from "../lib/library-client";
 import { SCENE_CATEGORIES } from "../remotion/types";
@@ -66,7 +67,7 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
         {/* Header / search */}
         <div className="flex items-center gap-2 p-4 border-b border-zinc-800">
           <h3 className="text-sm font-medium text-zinc-200 flex-shrink-0">Image Library</h3>
-          <span className="text-[11px] text-zinc-500 flex-shrink-0">{images.length}</span>
+          <span className="text-mini text-zinc-500 flex-shrink-0">{images.length}</span>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -83,7 +84,7 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 px-2 text-lg leading-none">×</button>
+          <IconButton onClick={onClose} className="text-zinc-500 hover:text-zinc-200 px-2 text-lg leading-none">×</IconButton>
         </div>
 
         <div className="flex flex-1 min-h-0">
@@ -92,7 +93,7 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
             {images.length === 0 ? (
               <div className="text-center text-zinc-500 text-xs p-8 space-y-1">
                 <p>{query || categoryFilter ? "No matches." : "Your library is empty."}</p>
-                <p className="text-[11px] text-zinc-600">Images you drop into scenes are saved here automatically and matched to future shot lists.</p>
+                <p className="text-mini text-zinc-600">Images you drop into scenes are saved here automatically and matched to future shot lists.</p>
               </div>
             ) : (
               <div className="grid grid-cols-4 gap-2">
@@ -107,7 +108,7 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
-                    <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[10px] text-zinc-300 px-1 py-0.5 truncate text-left">
+                    <span className="absolute bottom-0 inset-x-0 bg-black/60 text-micro text-zinc-300 px-1 py-0.5 truncate text-left">
                       {img.tags.slice(0, 2).join(", ") || img.filename}
                     </span>
                   </button>
@@ -150,45 +151,45 @@ function LibraryDetail({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={libraryFileUrl(image.id)} alt={image.filename} className="w-full object-contain max-h-44 bg-zinc-950" />
       </div>
-      <p className="text-[10px] text-zinc-500 truncate" title={image.filename}>{image.filename}</p>
+      <p className="text-micro text-zinc-500 truncate" title={image.filename}>{image.filename}</p>
 
       <div>
-        <label className="text-[10px] text-zinc-400 mb-0.5 block">Tags (comma-separated)</label>
+        <label className="text-micro text-zinc-400 mb-0.5 block">Tags (comma-separated)</label>
         <textarea
           value={tagsText}
           onChange={(e) => setTagsText(e.target.value)}
           rows={2}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-200 resize-y focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-mini text-zinc-200 resize-y focus-visible:ring-2 focus-visible:ring-blue-500"
         />
       </div>
       <div>
-        <label className="text-[10px] text-zinc-400 mb-0.5 block">Description</label>
+        <label className="text-micro text-zinc-400 mb-0.5 block">Description</label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={2}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-200 resize-y focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-mini text-zinc-200 resize-y focus-visible:ring-2 focus-visible:ring-blue-500"
         />
       </div>
       <div>
-        <label className="text-[10px] text-zinc-400 mb-0.5 block">Category</label>
+        <label className="text-micro text-zinc-400 mb-0.5 block">Category</label>
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-mini text-zinc-300"
         >
           {CATEGORIES.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
       </div>
-      <p className="text-[10px] text-zinc-600">Used in {image.usedInProjects.length} project{image.usedInProjects.length === 1 ? "" : "s"}</p>
+      <p className="text-micro text-zinc-600">Used in {image.usedInProjects.length} project{image.usedInProjects.length === 1 ? "" : "s"}</p>
 
       <div className="flex gap-2 mt-auto pt-1">
-        <button onClick={() => onDelete(image.id)} className="px-2.5 py-1.5 text-[11px] text-red-400 hover:bg-red-500/10 rounded transition-colors">Delete</button>
+        <Chip onClick={() => onDelete(image.id)} className="px-2.5 py-1.5 text-mini text-red-400 hover:bg-red-500/10 rounded">Delete</Chip>
         <button
           onClick={() => onSave(image.id, { tags: tagsText.split(",").map((t) => t.trim()).filter(Boolean), description, category })}
-          className="flex-1 px-3 py-1.5 text-[11px] font-medium bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+          className="flex-1 px-3 py-1.5 text-mini font-medium bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
         >
           Save
         </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { IconButton } from "./IconButton";
 import type { PronunciationEntry } from "../lib/pronunciation";
 
 interface Props {
@@ -71,15 +72,15 @@ export const PronunciationModal: React.FC<Props> = ({ open, onClose, showToast }
         <div className="p-4 border-b border-zinc-800">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-zinc-200">Pronunciations</h3>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 px-2 text-lg leading-none">×</button>
+            <IconButton onClick={onClose} className="text-zinc-500 hover:text-zinc-200 px-2 text-lg leading-none">×</IconButton>
           </div>
-          <p className="text-[11px] text-zinc-500 mt-1">
+          <p className="text-mini text-zinc-500 mt-1">
             Tell the voice how to say tricky terms. Applies to the voiceover only — your script and captions keep the original spelling. Shared across all projects.
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-1.5 text-[10px] uppercase tracking-wider text-zinc-500 font-medium px-1">
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-1.5 text-micro uppercase tracking-wider text-zinc-500 font-medium px-1">
             <span>Term (as written)</span>
             <span>Say it like</span>
             <span />
@@ -102,16 +103,16 @@ export const PronunciationModal: React.FC<Props> = ({ open, onClose, showToast }
                     placeholder="G seven"
                     className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500"
                   />
-                  <button
+                  <IconButton
                     onClick={() => remove(i)}
                     aria-label="Remove"
-                    className="w-7 h-7 flex items-center justify-center rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+                    className="w-7 h-7 text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
                   >
                     <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
-                  </button>
+                  </IconButton>
                 </div>
               ))}
-              <button onClick={add} className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors mt-1">+ Add term</button>
+              <button onClick={add} className="text-mini text-blue-400 hover:text-blue-300 transition-colors mt-1">+ Add term</button>
             </div>
           )}
         </div>

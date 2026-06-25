@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef, useMemo, Suspense, lazy } from "react";
+import Link from "next/link";
+import { IconButton } from "./IconButton";
 import type { PlayerRef } from "@remotion/player";
 import { InputPanel } from "./InputPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -31,7 +33,7 @@ import {
   ChartSpec,
   ClipTransform,
 } from "../remotion/types";
-import { AVATAR_VOICE_MAP } from "../lib/voices";
+import { AVATAR_VOICE_MAP, DEFAULT_DELIVERY, type VoiceDelivery } from "../lib/voices";
 import {
   saveProjectFile,
   loadProjectFile,
@@ -61,6 +63,7 @@ import {
   deleteFileOnServer,
   ProjectMeta,
   SerializableState,
+  TopicMeta,
 } from "../lib/storage";
 
 import { postProcessTranscript } from "../lib/transcript";
@@ -85,6 +88,10 @@ interface HistorySnapshot {
   scriptText: string;
   sceneSuggestions: SceneSuggestion[];
 }
+
+// Module-level guard (survives Strict-Mode remounts, unlike a useRef): which
+// projects have already had their auto-setup chain kicked off this session.
+const startedPipelines = new Set<string>();
 
 function snapshotKey(s: HistorySnapshot): string {
   return JSON.stringify({
@@ -144,6 +151,7 @@ export const Editor: React.FC = () => {
   const [musicSrc, setMusicSrc] = useState<string | null>(null);
   const [musicFile, setMusicFile] = useState<File | null>(null);
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
+  const [voiceDelivery, setVoiceDelivery] = useState<VoiceDelivery>(DEFAULT_DELIVERY);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [avatarPath, setAvatarPath] = useState<string | null>(null);
   const [availableAvatars, setAvailableAvatars] = useState<string[]>([]);
@@ -182,6 +190,17 @@ export const Editor: React.FC = () => {
   // --- Scene suggestions (shot list) ---
   const [sceneSuggestions, setSceneSuggestions] = useState<SceneSuggestion[]>([]);
   const [isAnalyzingScript, setIsAnalyzingScript] = useState(false);
+
+  // --- Auto-setup chain for triage-created projects (voice → captions → shot list) ---
+  type PipelineStage = null | "start" | "audio" | "captions" | "scenes" | "done";
+  const [autoPipeline, setAutoPipeline] = useState<PipelineStage>(null);
+  // Guard so the chain fires exactly once per project, even if loadProject runs
+  // twice (React Strict Mode dev double-invoke, or overlapping triggers).
+  const pipelineStartedRef = useRef<Set<string>>(new Set());
+  // Other triage projects still awaiting their auto-setup (flag not yet consumed).
+  const [pendingProjects, setPendingProjects] = useState<ProjectMeta[]>([]);
+  // Posting/social brief from the digest (shown read-only on the project page).
+  const [topicMeta, setTopicMeta] = useState<TopicMeta | null>(null);
   type AnalysisProvider = "groq" | "claude" | "rules" | "auto";
   // Visuals (shot list + image prompts) default to Claude for the best quality;
   // falls back to Auto if no Anthropic key is configured (see the health check).
@@ -314,6 +333,8 @@ export const Editor: React.FC = () => {
     setMusicSrc(null);
     setMusicFile(null);
     setMusicVolume(DEFAULT_MUSIC_VOLUME);
+    setVoiceDelivery(DEFAULT_DELIVERY);
+    setTopicMeta(null);
     setAvatarSrc(null);
     setAvatarPath(null);
     setImages([]);
@@ -345,8 +366,10 @@ export const Editor: React.FC = () => {
   }, []);
 
   const buildSerializableState = useCallback((): SerializableState => ({
+    ...(topicMeta ? { topicMeta } : {}),
     audioDelay,
     musicVolume,
+    voiceDelivery,
     durationInSeconds,
     transcript,
     imageTiming: images.map((img) => ({
@@ -382,7 +405,7 @@ export const Editor: React.FC = () => {
     activeVoiceName,
     activeTakeId,
     sceneSuggestions: sceneSuggestions.map((s) => ({ id: s.id, scriptSegment: s.scriptSegment, description: s.description, imagePrompt: s.imagePrompt, category: s.category, suggestedAnimation: s.suggestedAnimation, animationReason: s.animationReason, priority: s.priority, wordRange: s.wordRange, part: s.part, partCount: s.partCount })),
-  }), [audioDelay, musicVolume, durationInSeconds, transcript, images, intro, outro, introAnimation, outroCard, style, avatarPath, scriptText, thumbnailCopy, thumbnailFontSize, thumbnailImageIndex, visualPace, audioTakes, activeVoiceName, activeTakeId, sceneSuggestions]);
+  }), [topicMeta, audioDelay, musicVolume, voiceDelivery, durationInSeconds, transcript, images, intro, outro, introAnimation, outroCard, style, avatarPath, scriptText, thumbnailCopy, thumbnailFontSize, thumbnailImageIndex, visualPace, audioTakes, activeVoiceName, activeTakeId, sceneSuggestions]);
 
   const forceSaveCurrent = useCallback(() => {
     if (!currentProjectId) return;
@@ -398,6 +421,7 @@ export const Editor: React.FC = () => {
     revokeAllUrls();
     resetToDefaults();
     resetHistory();
+    setAutoPipeline(null); // cancel any in-flight auto-setup from a prior project
 
     const projectsList = listProjects();
     const meta = projectsList.find((p) => p.id === id);
@@ -487,6 +511,8 @@ export const Editor: React.FC = () => {
     if (state) {
       setAudioDelay(state.audioDelay ?? 0);
       setMusicVolume(state.musicVolume ?? DEFAULT_MUSIC_VOLUME);
+      setVoiceDelivery(state.voiceDelivery ? (state.voiceDelivery as VoiceDelivery) : DEFAULT_DELIVERY);
+      setTopicMeta(state.topicMeta ?? null);
       setDurationInSeconds(state.durationInSeconds ?? 10);
       setTranscript(state.transcript ?? []);
       setStyle((prev) => {
@@ -553,6 +579,13 @@ export const Editor: React.FC = () => {
             badgeSrc: restoredOutroBadge ? URL.createObjectURL(restoredOutroBadge) : prev.custom.badgeSrc,
           },
         }));
+      }
+      // Triage-created project: kick off the auto-setup chain once per project.
+      // The flag isn't part of buildSerializableState, so it's never re-saved;
+      // the ref guards against Strict-Mode / double-load re-triggers.
+      if (state.autoPipeline && !pipelineStartedRef.current.has(id)) {
+        pipelineStartedRef.current.add(id);
+        setAutoPipeline("start");
       }
     }
   }, [revokeAllUrls, resetToDefaults, resetHistory]);
@@ -1143,7 +1176,7 @@ export const Editor: React.FC = () => {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId, projectId: currentProjectId }),
+        body: JSON.stringify({ text, voiceId, projectId: currentProjectId, voiceSettings: voiceDelivery.settings, useV3: voiceDelivery.useV3 === true, deliveryPreset: voiceDelivery.preset }),
       });
 
       if (!res.ok) {
@@ -1214,7 +1247,7 @@ export const Editor: React.FC = () => {
       setIsGeneratingAudio(false);
       setGeneratingStartedAt(null);
     }
-  }, [avatarPath, currentProjectId, showToast, audioTakes.length, activeTakeId, handleAudioUpload]);
+  }, [avatarPath, currentProjectId, showToast, audioTakes.length, activeTakeId, handleAudioUpload, voiceDelivery]);
 
   const handleSaveTake = useCallback((id: string) => {
     const take = audioTakes.find((t) => t.id === id);
@@ -1487,6 +1520,52 @@ export const Editor: React.FC = () => {
     setImageFiles([]);
     runAnalysis();
   }, [images, runAnalysis]);
+
+  // Other triage projects whose auto-setup hasn't run yet (saved flag intact).
+  const findPendingTriageProjects = useCallback((): ProjectMeta[] => {
+    return listProjects().filter((p) => {
+      if (p.id === currentProjectId) return false;
+      return loadProjectState(p.id)?.autoPipeline === true;
+    });
+  }, [currentProjectId]);
+
+  // ── Auto-setup chain (triage projects) ──────────────────────────────
+  // Driven by completion signals, not an await-chain, since each step sets
+  // state the next one reads. Each effect advances the stage exactly once.
+  useEffect(() => {
+    if (autoPipeline !== "start") return;
+    if (!scriptText.trim() || !avatarPath) {
+      setAutoPipeline(null); // missing script/avatar — nothing to run
+      return;
+    }
+    // Generate exactly once per project. If this effect re-runs (Strict Mode)
+    // for a project already kicked off, just advance the stage without a 2nd TTS.
+    if (currentProjectId && startedPipelines.has(currentProjectId)) {
+      setAutoPipeline("audio");
+      return;
+    }
+    if (currentProjectId) startedPipelines.add(currentProjectId);
+    setAutoPipeline("audio");
+    handleGenerateAudio(scriptText);
+  }, [autoPipeline, scriptText, avatarPath, currentProjectId, handleGenerateAudio]);
+
+  useEffect(() => {
+    // handleGenerateAudio does TTS *and* auto-transcribes the take, so once both
+    // have settled and the transcript has landed, go straight to the shot list —
+    // no separate transcribe call needed.
+    if (autoPipeline === "audio" && !isGeneratingAudio && !isTranscribing && transcript.length > 0) {
+      setAutoPipeline("scenes");
+      runAnalysis();
+    }
+  }, [autoPipeline, isGeneratingAudio, isTranscribing, transcript, runAnalysis]);
+
+  useEffect(() => {
+    if (autoPipeline === "scenes" && !isAnalyzingScript && sceneSuggestions.length > 0) {
+      setAutoPipeline("done");
+      setTimelineExpanded(true); // land the user on the timeline
+      setPendingProjects(findPendingTriageProjects()); // surface the next one
+    }
+  }, [autoPipeline, isAnalyzingScript, sceneSuggestions, findPendingTriageProjects]);
 
   // ── Thumbnail generator modal ──
   const [showThumbnailModal, setShowThumbnailModal] = useState(false);
@@ -1817,6 +1896,10 @@ export const Editor: React.FC = () => {
           avatarPath={avatarPath}
           availableAvatars={availableAvatars}
           onGenerateAudio={handleGenerateAudio}
+          topicMeta={topicMeta}
+          onTopicMetaChange={setTopicMeta}
+          voiceDelivery={voiceDelivery}
+          onVoiceDeliveryChange={setVoiceDelivery}
           ttsAvailable={ttsAvailable}
           isGeneratingAudio={isGeneratingAudio}
           generatingStartedAt={generatingStartedAt}
@@ -1897,7 +1980,7 @@ export const Editor: React.FC = () => {
         {/* Top bar: avatar/voice info + export */}
         <div className="flex items-center gap-3 px-4 py-2 border-b border-zinc-800 flex-shrink-0">
           {/* Status cluster — muted, not actionable (keeps only the mismatch warning loud) */}
-          <div className="flex items-center gap-2 text-[11px] text-zinc-500 min-w-0">
+          <div className="flex items-center gap-2 text-mini text-zinc-500 min-w-0">
             {avatarPath && (() => {
               const name = avatarPath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
               const display = name.charAt(0).toUpperCase() + name.slice(1);
@@ -1921,12 +2004,21 @@ export const Editor: React.FC = () => {
                     <path d="M12 3a9 9 0 00-9 9v4a3 3 0 003 3h1a1 1 0 001-1v-5a1 1 0 00-1-1H6a7 7 0 0114 0h-1a1 1 0 00-1 1v5a1 1 0 001 1h1a3 3 0 003-3v-4a9 9 0 00-9-9z" fill="currentColor"/>
                   </svg>
                   <span className={mismatch ? "text-amber-400" : "text-zinc-400"}>{activeVoiceName}</span>
-                  {mismatch && <span className="text-[10px] text-amber-500/80" title="Voice doesn't match the selected avatar">mismatch</span>}
+                  {mismatch && <span className="text-micro text-amber-500/80" title="Voice doesn't match the selected avatar">mismatch</span>}
                 </span>
               );
             })()}
           </div>
           <div className="ml-auto flex items-center gap-1.5">
+            {/* Today's Topics — the triage intake page */}
+            <Link
+              href="/triage"
+              title="Today's Topics — paste the daily digest and spin up projects"
+              className="px-3 py-1.5 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 border border-zinc-700 rounded-lg transition-colors inline-flex items-center gap-1.5"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
+              Topics
+            </Link>
             {/* Chart — add an animated stock chart to the timeline */}
             <button
               onClick={() => setShowChartModal(true)}
@@ -2095,6 +2187,36 @@ export const Editor: React.FC = () => {
         </div>
       )}
 
+      {/* Auto-setup progress (triage-created projects) */}
+      {autoPipeline && autoPipeline !== "done" && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-violet-500/40 rounded-lg shadow-xl px-4 py-2.5 flex items-center gap-3">
+          <svg className="animate-spin h-4 w-4 text-violet-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+          <div className="text-xs text-zinc-200">
+            Auto-setup:{" "}
+            <span className="text-violet-300">
+              {autoPipeline === "start" || autoPipeline === "audio" ? "generating voice + captions…" : "building shot list…"}
+            </span>
+          </div>
+          <button onClick={() => setAutoPipeline(null)} className="text-micro text-zinc-500 hover:text-zinc-300" aria-label="Stop auto-setup">stop</button>
+        </div>
+      )}
+      {autoPipeline === "done" && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-emerald-500/40 rounded-lg shadow-xl px-4 py-2.5 flex items-center gap-3">
+          <span className="text-xs text-emerald-400">✓ Setup complete</span>
+          {pendingProjects.length > 0 ? (
+            <button
+              onClick={() => loadProject(pendingProjects[0].id)}
+              className="text-xs font-medium text-white bg-gradient-to-br from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 rounded-md px-2.5 py-1 transition active:scale-[0.97]"
+            >
+              Next: {pendingProjects[0].name} ({pendingProjects.length} left) →
+            </button>
+          ) : (
+            <span className="text-xs text-zinc-400">all projects set up</span>
+          )}
+          <button onClick={() => setAutoPipeline(null)} className="text-micro text-zinc-500 hover:text-zinc-300" aria-label="Dismiss">dismiss</button>
+        </div>
+      )}
+
       {/* Toast — always-rendered live region for screen reader announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
         {toast && (
@@ -2114,13 +2236,13 @@ export const Editor: React.FC = () => {
                 {toast.action.label}
               </button>
             )}
-            <button
+            <IconButton
               onClick={() => setToast(null)}
               aria-label="Dismiss"
-              className="ml-1 -mr-1 w-5 h-5 flex items-center justify-center rounded hover:bg-white/20 transition-colors flex-shrink-0"
+              className="ml-1 -mr-1 w-5 h-5 hover:bg-white/20 flex-shrink-0"
             >
               <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
-            </button>
+            </IconButton>
           </div>
         )}
       </div>

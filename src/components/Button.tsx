@@ -9,7 +9,7 @@ type Size = "sm" | "md";
 // `primary` is the single hero action per surface (the blue→violet gradient,
 // matching Export); everything else is neutral/ghost.
 const BASE =
-  "inline-flex items-center justify-center gap-1.5 font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed";
+  "inline-flex items-center justify-center gap-1.5 font-medium rounded-lg transition duration-150 ease-out-soft active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:active:scale-100";
 
 const SIZES: Record<Size, string> = {
   sm: "px-2.5 py-1 text-xs",

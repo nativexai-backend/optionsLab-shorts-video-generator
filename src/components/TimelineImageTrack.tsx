@@ -253,7 +253,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
       ))}
       {/* "Drag here for a new layer" drop row */}
       <div
-        className={`absolute left-0 right-0 border-t border-dashed flex items-center justify-center text-[10px] pointer-events-none transition-colors ${
+        className={`absolute left-0 right-0 border-t border-dashed flex items-center justify-center text-micro pointer-events-none transition-colors ${
           previewTrack === trackCount
             ? "border-violet-500 bg-violet-500/10 text-violet-300"
             : "border-zinc-800 text-zinc-700"
@@ -297,7 +297,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
               onPointerDown={(e) => handlePointerDown(i, "resize-left", e)}
             />
             {/* Label */}
-            <span className="text-[10px] text-white font-bold drop-shadow pointer-events-none truncate px-2">
+            <span className="text-micro text-white font-bold drop-shadow pointer-events-none truncate px-2">
               {i + 1}
             </span>
             {/* Right resize handle */}

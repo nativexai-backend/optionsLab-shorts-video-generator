@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
+import { Chip } from "./IconButton";
 import { VideoComposition } from "../remotion/VideoComposition";
 import { VideoProps, VIDEO_FPS, VIDEO_WIDTH, VIDEO_HEIGHT } from "../remotion/types";
 
@@ -138,22 +139,22 @@ const PlayerPanelInner: React.FC<Props> = ({
         {showSafeZones && <SafeZoneOverlay />}
       </div>
       <div className="flex items-center gap-3">
-        <p className="text-[10px] text-zinc-600 select-none">
+        <p className="text-micro text-zinc-600 select-none">
           <kbd className="px-1 py-0.5 bg-zinc-800 rounded text-zinc-500">Space</kbd> play/pause
           <span className="mx-2 text-zinc-800">·</span>
           <kbd className="px-1 py-0.5 bg-zinc-800 rounded text-zinc-500">⌘S</kbd> save
         </p>
-        <button
+        <Chip
           onClick={() => setShowSafeZones((v) => !v)}
           title="Show where TikTok/Reels UI covers the video"
-          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+          className={`text-micro px-2 py-0.5 rounded border ${
             showSafeZones
               ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
               : "border-zinc-800 text-zinc-600 hover:text-zinc-400 hover:border-zinc-600"
           }`}
         >
           Safe zones
-        </button>
+        </Chip>
       </div>
     </div>
   );
@@ -162,7 +163,7 @@ const PlayerPanelInner: React.FC<Props> = ({
 /** Approximate areas covered by TikTok/Reels UI — keep captions and key visuals out. */
 function SafeZoneOverlay() {
   const zone = "absolute bg-red-500/10 border-dashed border-red-400/50";
-  const label = "absolute text-[10px] font-medium text-red-300/80 px-1";
+  const label = "absolute text-micro font-medium text-red-300/80 px-1";
   return (
     <div className="absolute inset-0 pointer-events-none z-10 select-none">
       {/* Top — username / following tabs */}
@@ -190,7 +191,7 @@ function StepItem({ num, checked, label, onClick }: { num: number; checked: bool
       onClick={onClick}
       className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-zinc-800/70 transition-colors text-left group"
     >
-      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-semibold ${
+      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-micro font-semibold ${
         checked ? "bg-green-500/20 text-green-400" : "bg-zinc-800 text-zinc-500 group-hover:text-zinc-300"
       }`}>
         {checked ? (

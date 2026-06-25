@@ -10,7 +10,7 @@ Built with **Next.js 16** + **Remotion 4** (React-based video rendering).
 
 ## Features
 
-- **Script → Voiceover** — six presenter avatars, each mapped to an ElevenLabs voice, with one-click voice previews. Multiple "takes" per project; pick which take ships.
+- **Script → Voiceover** — six presenter avatars, each mapped to an ElevenLabs voice, with one-click voice previews. Multiple "takes" per project; pick which take ships. **Delivery presets** (Anchor / Default / Measured / Warm / Energetic, or hand-tuned Custom) steer stability, similarity, style, and speed without changing the voice; an optional **Eleven v3 expressive mode** understands inline `[audio tags]` (`[warm]`, `[curious]`, `[laughs]`) for more characterful reads.
 - **Smart TTS pronunciation** — money, numbers, and whole-number percentages are normalized before synthesis (`$5.08` → "five dollars and eight cents", `102` → "one hundred and two", `2-3` → "two to three", `300%` → "three hundred percent") while the script you typed stays untouched. A global **pronunciation dictionary** (top-bar **Pronounce** button) fixes terms TTS mangles — `G7` → "G seven", `FOMC` → "F O M C", `OPEC` → "Oh-peck" — applied only to the spoken text, not the on-screen captions.
 - **Word-synced captions** — generated audio is transcribed with word timestamps (Groq Whisper, local Whisper fallback). Karaoke-style highlighting, editable text with automatic timing re-alignment, full style controls (font, position, colors).
 - **AI shot list** — the script is broken into beats, each with a category, suggested animation, and a production-ready image prompt (bright, modern editorial photography house style; prompts double as stock-search queries, and stay strictly on the segment's named subject). A **Visual pace** control (Chill / Normal / Fast) auto-splits long beats into evenly-paced shots; per-scene **Refine** rewrites a prompt (optionally steered), and a per-card delete removes a block from the shot list and timeline at once. Provider selectable per session (**Claude by default** for quality; Groq and a rule-based engine also available).
@@ -19,6 +19,8 @@ Built with **Next.js 16** + **Remotion 4** (React-based video rendering).
 - **Animated stock charts** — branded, on-brand charts that *draw in as the video plays* (replacing off-brand TradingView screenshots). Real OHLC data when a provider key is set, or a realistic synthetic series centered on the ticker's real price level otherwise. Searchable **ticker picker** auto-fills the company name; **real company logos** render in the chart header (with a monogram fallback). Modern card design: logo + ticker/company + date, price + change, a smooth draw-in spline with a glowing endpoint, dashed drop line, and date-labeled x-axis (line / candles / area).
 - **API usage tracking** — per-project, per-API consumption (ElevenLabs characters ≈ credits, Groq/Claude tokens, Whisper seconds) with an overall view, so you can see where spend goes. Top-bar **Usage** button.
 - **Timeline editor** — live Remotion preview, audio waveform, draggable segments, per-image pan/zoom animations (Ken Burns, pans, zooms), drag-to-reorder slots that keep the shot list in lockstep, undo/redo (⌘Z / ⌘⇧Z).
+- **Multi-track timeline** — clips can sit on stacked tracks (z-order: track 0 is the base layer, higher tracks render on top) with a per-clip transform (position + size box) for picture-in-picture / overlay shots. Drag clips between rows, or use the add-track row to stack a new layer. Fully back-compatible: projects without tracks render identically as a single full-frame base layer.
+- **Daily triage (`/triage`)** — paste the day's "PERSONA SHORTS" production digest and it's parsed deterministically into ranked topics; optionally let **Claude pick the top 5** balancing engagement score against a 3-day novelty check, set per-topic posting times across **WAT/ET** timezones, then spin up a ready-to-edit project per selected topic (script + voice spec + presenter prefilled, pipeline auto-runs on open).
 - **Branding** — audio-reactive avatar overlay with four visualizer styles (Pulse Rings, Liquid Wave, Bars, Minimal Glow), animated intro (circle reveal / slide down), OptionsLab outro card with disclaimer, persistent "OptionsLab App" badge.
 - **Background music** — optional bed that loops under the voiceover and fades out at the end.
 - **Export** — server-side render to H.264 MP4 at 720×1280 or 1080×1920, with real progress reporting; renders run as jobs and survive a page reload.
@@ -130,6 +132,15 @@ A global term→spoken-form map that fixes how the TTS voice says acronyms and n
 - **Editing.** The top-bar **Pronounce** button opens a modal to add/edit/remove entries. Ships seeded with common finance/news terms (`G7`, `G20`, `FOMC`, `OPEC`, `NATO`, `ECB`, `GDP`, `CPI`, `FISA`).
 - **Storage / API.** One JSON file (`data/pronunciation.json`, override with `PRONUNCIATION_PATH`). `GET /api/pronunciation` reads it (seeded with defaults on first run); `PUT` replaces it.
 
+## Daily triage
+
+A standalone page (`/triage`) for turning the day's content digest into a batch of ready-to-edit projects, in ranked order.
+
+- **Deterministic parse (`src/lib/triage-parse.ts`, tested).** The "PERSONA SHORTS — PRODUCTION DIGEST" is a highly regular format, so it's parsed with no LLM: topics are split on their `#N — Title (score X/100)` headers, and each block yields its voice-design config (persona, gender, voice spec → delivery settings + audio tags), social block (description, hashtags, thumbnail copy, captions, Twitter keywords), and the verbatim spoken script. The source already ranks topics by engagement, so correct parsing alone gives the right order.
+- **AI pick (`/api/triage-select`).** *Pick 5 (Claude)* asks Claude (`claude-sonnet-4-6`) to choose the strongest topics while balancing each one's engagement score against a **3-day novelty check** — recently-posted topics are kept in a local log (`vid-triage-log`) and the model skips anything too similar, explaining why. Falls back to pure score order when no Anthropic key is set.
+- **Scheduling (`src/lib/timezones.ts`).** Per-topic post times are editable in either **WAT** or **ET**, with a live dual clock and staggered defaults (5:00 PM ET, +90 min apart). The digest's own suggested timing is shown alongside.
+- **Create projects.** Selected topics each become a new project — script, parsed voice delivery spec, and gender-matched presenter (female → Claire; male → Nathan/Ethan) prefilled — with `autoPipeline` on so the editor auto-runs voice → captions → shot list when the project opens. (Digest `voice_id`s are ignored; the app reuses its own designed TL characters from `AVATAR_VOICE_MAP`.)
+
 ## API usage
 
 The top-bar **Usage** button shows per-project, per-API consumption plus overall totals: ElevenLabs **characters** (≈ credits), Groq / Claude **tokens**, Whisper **seconds**. Each API route records its real reported usage against the current project (`data/usage.json`, gitignored). Tracking starts when the feature is added — earlier usage isn't retroactive.
@@ -142,7 +153,9 @@ The **AI provider** dropdown in ② Visuals (Auto / Groq / Claude / Rules) appli
 src/
 ├── app/
 │   ├── page.tsx                  # entry — renders the Editor
+│   ├── triage/                   # daily digest → ranked topics → batch project creation
 │   └── api/
+│       ├── triage-select/        # Claude picks top topics (engagement + 3-day novelty)
 │       ├── tts/                  # ElevenLabs synthesis (+ pronunciation + number normalization)
 │       ├── pronunciation/        # global term→spoken-form dictionary (GET/PUT)
 │       ├── voice-preview/        # cached per-avatar voice samples
@@ -193,7 +206,9 @@ src/
     ├── tickers.ts                # ticker list (symbol → company + reference price)
     ├── usage-storage.ts          # per-project / per-API usage recording
     ├── anthropic.ts              # resolves ANTHROPIC_API_KEY or ANTHROPIC
-    └── voices.ts                 # avatar → ElevenLabs voice map + TTS model
+    ├── triage-parse.ts           # daily digest → ranked topics + voice specs    [tested]
+    ├── timezones.ts              # WAT/ET zoned time math for triage scheduling
+    └── voices.ts                 # avatar → voice map + TTS models + delivery presets / v3 spec parser
 ```
 
 Video constants (`src/remotion/types.ts`): 720×1280 @ 30 fps; exports can scale to 1080×1920.
@@ -212,7 +227,7 @@ Auto-save runs 500 ms after any change and syncs both layers (including the proj
 ```bash
 npm run dev     # dev server (Remotion bundle rebuilds per render in dev)
 npm run build   # production build
-npm test        # vitest — transcript, scene-timing, TTS-normalization, pronunciation, library-matching suites
+npm test        # vitest — transcript, scene-timing, TTS-normalization, pronunciation, library-matching, triage-parse suites
 npm run lint
 ```
 

@@ -129,7 +129,7 @@ export const Timeline: React.FC<Props> = ({
         </button>
 
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-[10px] text-zinc-400">Zoom</span>
+          <span className="text-micro text-zinc-400">Zoom</span>
           <input
             type="range"
             min={0}
@@ -138,7 +138,7 @@ export const Timeline: React.FC<Props> = ({
             onChange={handleZoomChange}
             className="w-20 h-1 accent-zinc-500"
           />
-          <span className="text-[10px] text-zinc-500 tabular-nums w-16 text-right">
+          <span className="text-micro text-zinc-500 tabular-nums w-16 text-right">
             {formatTime(currentTime)} / {formatTime(durationInSeconds)}
           </span>
         </div>
@@ -150,11 +150,11 @@ export const Timeline: React.FC<Props> = ({
         <div className="flex-shrink-0 border-r border-zinc-800" style={{ width: GUTTER_WIDTH }}>
           <div style={{ height: 26 }} /> {/* ruler offset */}
           <div className="flex items-center justify-end pr-2" style={{ height: WAVEFORM_HEIGHT }}>
-            <span className="text-[10px] text-zinc-400">Audio</span>
+            <span className="text-micro text-zinc-400">Audio</span>
           </div>
           {Array.from({ length: trackCount }, (_, i) => (
             <div key={i} className="flex items-center justify-end pr-2" style={{ height: TRACK_HEIGHT }}>
-              <span className="text-[10px] text-zinc-400">{trackCount === 1 ? "Images" : `Track ${i + 1}`}</span>
+              <span className="text-micro text-zinc-400">{trackCount === 1 ? "Images" : `Track ${i + 1}`}</span>
             </div>
           ))}
           <div className="flex items-center justify-end pr-2 text-zinc-600" style={{ height: ADD_TRACK_HEIGHT }}>
@@ -209,7 +209,7 @@ export const Timeline: React.FC<Props> = ({
                 }}
               >
                 <div className="h-full border-l-2 border-r border-dashed border-emerald-500/60 bg-emerald-500/10">
-                  <span className="text-[10px] text-emerald-400 font-medium px-1">Intro</span>
+                  <span className="text-micro text-emerald-400 font-medium px-1">Intro</span>
                 </div>
               </div>
             )}
@@ -223,7 +223,7 @@ export const Timeline: React.FC<Props> = ({
                 }}
               >
                 <div className="h-full border-l border-r-2 border-dashed border-amber-500/60 bg-amber-500/10">
-                  <span className="text-[10px] text-amber-400 font-medium px-1">Outro</span>
+                  <span className="text-micro text-amber-400 font-medium px-1">Outro</span>
                 </div>
               </div>
             )}

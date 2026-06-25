@@ -68,6 +68,21 @@ export async function clearFiles(): Promise<void> {
 
 const OLD_STATE_KEY = "vid-editor-state";
 
+// Posting/social metadata captured from the daily digest at triage time. Shown
+// (read-only) on the project page so you have the brief while you finish the video.
+export interface TopicMeta {
+  postAt?: number; // epoch ms — planned posting instant
+  postTiming?: string; // the digest's freeform timing note
+  platform?: string; // best platform
+  score?: number; // engagement score from the digest
+  why?: string; // why-it-works note
+  thumbnail?: string; // thumbnail copy line
+  description?: string; // social caption/description
+  hashtags?: string; // hashtag line
+  captions?: string[]; // on-screen captions
+  twitterKeywords?: string[]; // tweets-to-engage keywords
+}
+
 export interface SerializableState {
   audioDelay: number;
   musicVolume?: number;
@@ -91,6 +106,20 @@ export interface SerializableState {
     style?: string;
   };
   style: Record<string, unknown>;
+  voiceDelivery?: {
+    preset: string;
+    settings: { stability: number; similarity_boost: number; style: number; speed: number; use_speaker_boost?: boolean };
+    useV3?: boolean;
+    tags?: string[];
+    prosody?: string;
+    voiceDescription?: string;
+    specRaw?: string;
+  };
+  // Set by the triage intake — tells the editor to auto-run voice → captions →
+  // shot list when this project is first opened. Consumed once, never re-saved.
+  autoPipeline?: boolean;
+  // Posting/social brief from the digest (persisted; shown on the project page).
+  topicMeta?: TopicMeta;
   avatarPath?: string | null;
   scriptText?: string;
   thumbnail?: { copy: string; fontSize: number; imageIndex: number };

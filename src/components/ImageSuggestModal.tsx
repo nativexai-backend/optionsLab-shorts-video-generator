@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { IconButton, Chip } from "./IconButton";
 import type { SceneSuggestion } from "../remotion/types";
 import type { LibraryImage } from "../lib/library-types";
 import { tokenize } from "../lib/library-types";
@@ -151,20 +152,20 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
         <div className="flex items-start gap-3 p-4 border-b border-zinc-800">
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-medium text-zinc-100">Find an image · Shot {index + 1}</h3>
-            <p className="text-[11px] text-zinc-500 mt-0.5 line-clamp-1">{scene.description}</p>
+            <p className="text-mini text-zinc-500 mt-0.5 line-clamp-1">{scene.description}</p>
           </div>
           <div className="flex items-center gap-1 bg-zinc-800 rounded-md p-0.5">
             {SOURCES.map((s) => (
-              <button
+              <Chip
                 key={s.value}
                 onClick={() => onSource(s.value)}
-                className={`px-2 py-1 text-[11px] rounded transition-colors ${source === s.value ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+                className={`px-2 py-1 text-mini rounded ${source === s.value ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
               >
                 {s.label}
-              </button>
+              </Chip>
             ))}
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 text-lg leading-none px-1">×</button>
+          <IconButton onClick={onClose} className="text-zinc-500 hover:text-zinc-200 text-lg leading-none px-1">×</IconButton>
         </div>
 
         {/* Search bar — concise query (drives Google; Pexels keeps the rich prompt until edited) */}
@@ -190,13 +191,13 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
           {showChips && (
             <div className="flex flex-wrap gap-1.5">
               {chips.map((c) => (
-                <button
+                <Chip
                   key={c.label}
                   onClick={() => applyChip(c.q)}
-                  className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${q === c.q ? "bg-blue-600/30 border-blue-500 text-blue-200" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"}`}
+                  className={`px-2 py-0.5 rounded-full text-micro border ${q === c.q ? "bg-blue-600/30 border-blue-500 text-blue-200" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600"}`}
                 >
                   {c.label}
-                </button>
+                </Chip>
               ))}
             </div>
           )}
@@ -206,13 +207,13 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
           {/* ── Suggested for this scene ── */}
           <section>
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wide">Suggested for this scene</h4>
-              {loadingStock && <span className="text-[10px] text-zinc-500">Searching photos…</span>}
+              <h4 className="text-mini font-semibold text-zinc-300 uppercase tracking-wide">Suggested for this scene</h4>
+              {loadingStock && <span className="text-micro text-zinc-500">Searching photos…</span>}
             </div>
 
             {matches.length > 0 && (
               <>
-                <p className="text-[10px] text-green-400/80 mb-1.5">From your library ({matches.length})</p>
+                <p className="text-micro text-green-400/80 mb-1.5">From your library ({matches.length})</p>
                 <div className="grid grid-cols-6 gap-2 mb-3">
                   {matches.map((img) => (
                     <button
@@ -229,9 +230,9 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
               </>
             )}
 
-            <p className="text-[10px] text-zinc-400 mb-1.5">Stock photos {stock.length ? `(${stock.length})` : ""}</p>
+            <p className="text-micro text-zinc-400 mb-1.5">Stock photos {stock.length ? `(${stock.length})` : ""}</p>
             {stock.length === 0 && !loadingStock ? (
-              <p className="text-[11px] text-zinc-600 py-4 text-center">No stock photos found for this scene.</p>
+              <p className="text-mini text-zinc-600 py-4 text-center">No stock photos found for this scene.</p>
             ) : (
               <div className="grid grid-cols-6 gap-2">
                 {stock.map((p) => (
@@ -244,11 +245,11 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={p.thumb} alt={p.alt} className="w-full h-full object-cover" loading="lazy" />
-                    <span className="absolute top-0.5 left-0.5 px-1 py-0.5 rounded text-[10px] font-medium bg-black/60 text-white capitalize">
+                    <span className="absolute top-0.5 left-0.5 px-1 py-0.5 rounded text-micro font-medium bg-black/60 text-white capitalize">
                       {p.source === "serpapi" ? "web" : "pexels"}
                     </span>
                     {savingId === p.id && (
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-[10px] text-white">Saving…</span>
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-micro text-white">Saving…</span>
                     )}
                   </button>
                 ))}
@@ -263,10 +264,10 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
                 onClick={() => setShowLibrary((v) => !v)}
                 className="w-full flex items-center justify-between group"
               >
-                <h4 className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wide group-hover:text-zinc-100">
+                <h4 className="text-mini font-semibold text-zinc-300 uppercase tracking-wide group-hover:text-zinc-100">
                   Your library ({rest.length})
                 </h4>
-                <span className="flex items-center gap-1 text-[10px] text-zinc-500 group-hover:text-zinc-300">
+                <span className="flex items-center gap-1 text-micro text-zinc-500 group-hover:text-zinc-300">
                   {showLibrary ? "Hide" : "Show all"}
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`transition-transform ${showLibrary ? "rotate-180" : ""}`}><polyline points="6 9 12 15 18 9" /></svg>
                 </span>

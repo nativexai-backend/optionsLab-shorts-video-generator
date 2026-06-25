@@ -6,6 +6,7 @@ import {
   CHART_TYPES, CHART_RANGES, DEFAULT_CHART_COLORS,
 } from "../remotion/types";
 import { AnimatedChart } from "../remotion/AnimatedChart";
+import { Chip } from "./IconButton";
 import { searchTickers, findTicker, type TickerInfo } from "../lib/tickers";
 
 interface Props {
@@ -101,7 +102,7 @@ const TickerCombobox: React.FC<{
               className={`flex items-center justify-between gap-2 px-2.5 py-1.5 cursor-pointer ${i === active ? "bg-blue-600/30" : "hover:bg-zinc-700/50"}`}
             >
               <span className="text-sm font-semibold text-zinc-100">{t.symbol}</span>
-              <span className="text-[11px] text-zinc-400 truncate">{t.name}</span>
+              <span className="text-mini text-zinc-400 truncate">{t.name}</span>
             </li>
           ))}
         </ul>
@@ -252,7 +253,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
             )}
           </div>
           {source && (
-            <p className="text-[10px] text-zinc-500 mt-1.5 text-center">
+            <p className="text-micro text-zinc-500 mt-1.5 text-center">
               {source === "real" ? "Real market data" : dataMode === "custom" ? "Your custom values" : "Synthetic (shape from trend)"}
             </p>
           )}
@@ -262,7 +263,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
         <div className="w-64 flex flex-col gap-3">
           <div>
             <h3 className="text-sm font-medium text-zinc-200">Stock Chart</h3>
-            <p className="text-[11px] text-zinc-500 mt-0.5">Branded chart that draws in as the video plays.</p>
+            <p className="text-mini text-zinc-500 mt-0.5">Branded chart that draws in as the video plays.</p>
           </div>
 
           <div>
@@ -286,13 +287,13 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
             <label className="text-xs text-zinc-400 mb-1 block">Data</label>
             <div className="flex items-center gap-0.5 bg-zinc-800 rounded-md p-0.5">
               {([["trend", "Trend"], ["custom", "Custom numbers"]] as const).map(([val, label]) => (
-                <button
+                <Chip
                   key={val}
                   onClick={() => setDataMode(val)}
-                  className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${dataMode === val ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+                  className={`flex-1 px-2 py-1 text-xs rounded ${dataMode === val ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
                 >
                   {label}
-                </button>
+                </Chip>
               ))}
             </div>
           </div>
@@ -307,7 +308,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
                 rows={3}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500 resize-none"
               />
-              <p className="text-[10px] text-zinc-600 mt-1">Comma, space, or line separated. Each value is a point; the price &amp; change come from your numbers.</p>
+              <p className="text-micro text-zinc-600 mt-1">Comma, space, or line separated. Each value is a point; the price &amp; change come from your numbers.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
@@ -374,7 +375,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
               onClick={handleAdd}
               disabled={!spec}
               className="px-4 py-1.5 text-xs font-medium rounded-md text-white transition-colors disabled:opacity-50"
-              style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)" }}
+              style={{ background: "var(--gradient-brand)" }}
             >
               Add to timeline
             </button>

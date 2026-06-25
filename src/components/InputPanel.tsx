@@ -9,6 +9,11 @@ import type { LibraryImage } from "../lib/library-types";
 import { searchLibrary, libraryFileUrl } from "../lib/library-client";
 import { ImageSuggestModal } from "./ImageSuggestModal";
 import { Button } from "./Button";
+import { IconButton, Chip } from "./IconButton";
+import { DELIVERY_PRESETS, V3_AUDIO_TAGS, parseVoiceSpec, type VoiceDelivery, type DeliveryPreset, type VoiceSettings } from "../lib/voices";
+import type { TopicMeta } from "../lib/storage";
+import { parseDigest } from "../lib/triage-parse";
+import { ZONES, formatTime } from "../lib/timezones";
 
 const SCRIPT_CHAR_LIMIT = 5000;
 const SPOKEN_WORDS_PER_SECOND = 2.5;
@@ -26,6 +31,10 @@ interface Props {
   avatarPath: string | null;
   availableAvatars: string[];
   onGenerateAudio: (text: string) => void;
+  topicMeta: TopicMeta | null;
+  onTopicMetaChange: (m: TopicMeta) => void;
+  voiceDelivery: VoiceDelivery;
+  onVoiceDeliveryChange: (d: VoiceDelivery) => void;
   ttsAvailable: boolean | null;
   isGeneratingAudio: boolean;
   generatingStartedAt: number | null;
@@ -165,36 +174,35 @@ function TakeRow({ take, isActive, onUse, onDelete }: { take: { id: string; src:
       {isActive && <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-green-500" />}
       <audio ref={audioRef} src={take.src} onEnded={() => setPlaying(false)} preload="none" />
       <div className="flex items-center gap-1.5 h-6">
-        <button type="button" onClick={togglePlay} className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors" title={playing ? "Pause" : "Play"}>
+        <IconButton onClick={togglePlay} className="w-5 h-5 flex-shrink-0 hover:bg-zinc-700 text-zinc-400 hover:text-white" title={playing ? "Pause" : "Play"}>
           {playing ? (
             <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="1" width="3" height="10" rx="0.5" /><rect x="7" y="1" width="3" height="10" rx="0.5" /></svg>
           ) : (
             <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor"><path d="M3 1.5v9l7.5-4.5z" /></svg>
           )}
-        </button>
+        </IconButton>
         <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <span className={`text-[11px] font-medium whitespace-nowrap ${isActive ? "text-green-400" : "text-zinc-300"}`}>{take.label}</span>
-          {isActive && <span className="text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold leading-none">In video</span>}
+          <span className={`text-mini font-medium whitespace-nowrap ${isActive ? "text-green-400" : "text-zinc-300"}`}>{take.label}</span>
+          {isActive && <span className="text-micro bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold leading-none">In video</span>}
         </div>
         {!isActive && (
-          <button
-            type="button"
+          <Chip
             onClick={onUse}
-            className="flex-shrink-0 px-2 py-0.5 text-[10px] font-medium bg-zinc-700 hover:bg-green-600 text-zinc-300 hover:text-white rounded transition-colors"
+            className="flex-shrink-0 px-2 py-0.5 text-micro font-medium bg-zinc-700 hover:bg-green-600 text-zinc-300 hover:text-white rounded"
             title="Make this take the voiceover"
           >
             Use
-          </button>
+          </Chip>
         )}
-        <button type="button" onClick={() => setExpanded(!expanded)} className="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded text-zinc-600 hover:text-zinc-300 transition-colors" title="Show script used">
+        <IconButton onClick={() => setExpanded(!expanded)} className="w-4 h-4 flex-shrink-0 text-zinc-600 hover:text-zinc-300" title="Show script used">
           <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">{expanded ? <path d="M2 6.5L5 3.5L8 6.5" /> : <path d="M2 3.5L5 6.5L8 3.5" />}</svg>
-        </button>
-        <button type="button" onClick={onDelete} className="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded hover:bg-zinc-700 text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100" title="Delete take">
+        </IconButton>
+        <IconButton onClick={onDelete} className="w-4 h-4 flex-shrink-0 hover:bg-zinc-700 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100" title="Delete take">
           <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
-        </button>
+        </IconButton>
       </div>
       {expanded && take.scriptUsed && (
-        <p className="text-[10px] text-zinc-500 leading-relaxed whitespace-pre-wrap pl-6 pr-1 pb-0.5 pt-0.5">{take.scriptUsed}</p>
+        <p className="text-micro text-zinc-500 leading-relaxed whitespace-pre-wrap pl-6 pr-1 pb-0.5 pt-0.5">{take.scriptUsed}</p>
       )}
     </div>
   );
@@ -246,7 +254,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
     <div className="bg-zinc-800/60 border border-zinc-700/50 rounded-md p-2 text-xs">
       {/* Resting row: index · description · caption · primary action */}
       <div className="flex items-start gap-2">
-        <span className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
+        <span className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center text-micro font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
           {index + 1}
         </span>
         <div className="flex-1 min-w-0">
@@ -255,7 +263,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
             type="button"
             onClick={() => setExpanded((v) => !v)}
             title={expanded ? "Hide details" : "Show details & image options"}
-            className="mt-0.5 flex items-center gap-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="mt-0.5 flex items-center gap-1.5 text-micro text-zinc-500 hover:text-zinc-300 transition-colors"
           >
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${priority.dot}`} title={priority.label} />
             <span>{scene.category}</span>
@@ -269,7 +277,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
         <button
           type="button"
           onClick={onApply}
-          className="flex-shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-700 rounded text-[10px] font-medium text-white transition-colors whitespace-nowrap"
+          className="flex-shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-700 rounded text-micro font-medium text-white transition-colors whitespace-nowrap"
           title={`${scene.suggestedAnimation} — ${scene.animationReason}`}
         >
           + Timeline
@@ -283,7 +291,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
             <button
               type="button"
               onClick={() => setShowScript(!showScript)}
-              className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${showScript ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
+              className={`text-micro px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${showScript ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
             >
               Script
             </button>
@@ -292,14 +300,14 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
                 <button
                   type="button"
                   onClick={() => setShowPrompt(!showPrompt)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${showPrompt ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
+                  className={`text-micro px-1.5 py-0.5 rounded whitespace-nowrap transition-colors ${showPrompt ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
                 >
                   Prompt
                 </button>
                 <button
                   type="button"
                   onClick={copyPrompt}
-                  className="text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40 transition-colors"
+                  className="text-micro px-1.5 py-0.5 rounded whitespace-nowrap text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40 transition-colors"
                   title="Copy image prompt to clipboard"
                 >
                   {copied ? "Copied ✓" : "Copy"}
@@ -308,7 +316,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
                   type="button"
                   onClick={() => setShowRefineInput((v) => !v)}
                   disabled={isRefining}
-                  className={`text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap transition-colors disabled:opacity-50 ${showRefineInput ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
+                  className={`text-micro px-1.5 py-0.5 rounded whitespace-nowrap transition-colors disabled:opacity-50 ${showRefineInput ? "bg-zinc-700/70 text-zinc-200" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/40"}`}
                   title="Rewrite this prompt with AI — optionally tell it what you want"
                 >
                   {isRefining ? "Refining…" : "✦ Refine"}
@@ -327,7 +335,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
           </div>
 
           {showScript && (
-            <p className="text-[10px] text-zinc-500 leading-relaxed italic">&ldquo;{scene.scriptSegment}&rdquo;</p>
+            <p className="text-micro text-zinc-500 leading-relaxed italic">&ldquo;{scene.scriptSegment}&rdquo;</p>
           )}
           {showRefineInput && (
             <div className="flex items-center gap-1">
@@ -342,13 +350,13 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
                 placeholder="Optional direction — e.g. 'night skyline, more dramatic'"
                 maxLength={500}
                 autoFocus
-                className="flex-1 min-w-0 bg-zinc-900 border border-violet-500/30 rounded px-1.5 py-1 text-[10px] text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-1 focus-visible:ring-violet-500"
+                className="flex-1 min-w-0 bg-zinc-900 border border-violet-500/30 rounded px-1.5 py-1 text-micro text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-violet-500"
               />
               <button
                 type="button"
                 onClick={submitRefine}
                 disabled={isRefining}
-                className="flex-shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-[10px] font-medium text-white transition-colors"
+                className="flex-shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-micro font-medium text-white transition-colors"
               >
                 {isRefining ? (
                   <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
@@ -360,7 +368,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
           )}
           {showPrompt && scene.imagePrompt && (
             <div className={`bg-zinc-900/60 border rounded px-2 py-1.5 transition-colors ${isRefining ? "border-violet-500/50" : "border-zinc-700/40"}`}>
-              <p className={`text-[10px] leading-relaxed select-all ${isRefining ? "text-zinc-500" : "text-zinc-300"}`}>{scene.imagePrompt}</p>
+              <p className={`text-micro leading-relaxed select-all ${isRefining ? "text-zinc-500" : "text-zinc-300"}`}>{scene.imagePrompt}</p>
             </div>
           )}
 
@@ -385,7 +393,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
             <button
               type="button"
               onClick={() => setBrowseOpen(true)}
-              className="ml-auto flex-shrink-0 flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 transition-colors font-medium"
+              className="ml-auto flex-shrink-0 flex items-center gap-1 text-micro px-2 py-1 rounded bg-zinc-700/60 text-zinc-300 hover:bg-zinc-700 transition-colors font-medium"
             >
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
               Find photos
@@ -420,6 +428,10 @@ const InputPanelInner: React.FC<Props> = ({
   avatarPath,
   availableAvatars,
   onGenerateAudio,
+  topicMeta,
+  onTopicMetaChange,
+  voiceDelivery,
+  onVoiceDeliveryChange,
   ttsAvailable,
   isGeneratingAudio,
   generatingStartedAt,
@@ -568,6 +580,23 @@ const InputPanelInner: React.FC<Props> = ({
   const estAudioSecs = Math.round(scriptWords / SPOKEN_WORDS_PER_SECOND);
   const scriptOverLimit = scriptChars > SCRIPT_CHAR_LIMIT;
 
+  // Insert a v3 audio tag (e.g. "[warm] ") at the script textarea's cursor.
+  const scriptRef = useRef<HTMLTextAreaElement>(null);
+  const insertTag = useCallback((tag: string) => {
+    const el = scriptRef.current;
+    const snippet = `[${tag}] `;
+    const at = el ? el.selectionStart : scriptText.length;
+    const next = scriptText.slice(0, at) + snippet + scriptText.slice(at);
+    onScriptTextChange(next);
+    // Restore focus + place the cursor just after the inserted tag.
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const pos = at + snippet.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }, [scriptText, onScriptTextChange]);
+
   // ── Project name inline editing ──
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(projectName);
@@ -653,7 +682,7 @@ const InputPanelInner: React.FC<Props> = ({
                 onChange={(e) => setNameValue(e.target.value)}
                 onBlur={commitName}
                 onKeyDown={(e) => { if (e.key === "Enter") commitName(); if (e.key === "Escape") { setNameValue(projectName); setEditingName(false); } }}
-                className="text-lg font-semibold text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-1.5 py-0.5 w-full outline-none focus:ring-2 focus:ring-blue-500"
+                className="text-lg font-semibold text-zinc-200 bg-zinc-800 border border-zinc-600 rounded px-1.5 py-0.5 w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               />
             ) : (
               <button
@@ -706,7 +735,7 @@ const InputPanelInner: React.FC<Props> = ({
                     {sortedProjects.map((p, i) => (
                       <React.Fragment key={p.id}>
                         {(i === 0 || dayLabel(p.modifiedAt) !== dayLabel(sortedProjects[i - 1].modifiedAt)) && (
-                          <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-zinc-500 font-semibold border-b border-zinc-800/60">
+                          <div className="px-3 pt-2 pb-1 text-micro uppercase tracking-wider text-zinc-500 font-semibold border-b border-zinc-800/60">
                             {dayLabel(p.modifiedAt)}
                           </div>
                         )}
@@ -725,20 +754,20 @@ const InputPanelInner: React.FC<Props> = ({
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-zinc-200 truncate">{p.name}</p>
-                          <p className="text-[10px] text-zinc-400">{timeAgo(p.modifiedAt)}</p>
+                          <p className="text-micro text-zinc-400">{timeAgo(p.modifiedAt)}</p>
                         </div>
                         {projects.length > 1 && (
                           confirmDeleteId === p.id ? (
                             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                               <button
                                 onClick={() => { onDeleteProject(p.id); setConfirmDeleteId(null); }}
-                                className="px-1.5 py-0.5 text-[10px] bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
+                                className="px-1.5 py-0.5 text-micro bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
                               >
                                 Delete
                               </button>
                               <button
                                 onClick={() => setConfirmDeleteId(null)}
-                                className="px-1.5 py-0.5 text-[10px] bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
+                                className="px-1.5 py-0.5 text-micro bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded transition-colors"
                               >
                                 Cancel
                               </button>
@@ -767,6 +796,15 @@ const InputPanelInner: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* Posting/social brief — shown when captured, else an attach affordance */}
+      <div className="px-3 pt-3">
+        {topicMeta ? (
+          <PostDetailsCard meta={topicMeta} />
+        ) : (
+          <AttachPostDetails projectName={projectName} onAttach={onTopicMetaChange} />
+        )}
+      </div>
+
       {/* ① Script & Voice */}
       <Section
         id="script"
@@ -781,7 +819,7 @@ const InputPanelInner: React.FC<Props> = ({
           {ttsAvailable === false && (
             <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-2">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-400 flex-shrink-0 mt-0.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
-              <p className="text-[11px] text-amber-300/90 leading-snug">
+              <p className="text-mini text-amber-300/90 leading-snug">
                 <span className="font-medium">ElevenLabs API key not configured</span> — voice generation and previews are disabled. Add <code className="bg-zinc-800 px-1 rounded">ELEVENLABS_API_KEY</code> to <code className="bg-zinc-800 px-1 rounded">.env.local</code> and restart.
               </p>
             </div>
@@ -832,7 +870,7 @@ const InputPanelInner: React.FC<Props> = ({
                           )}
                         </button>
                       </div>
-                      <span className={`text-[11px] capitalize ${isSelected ? "text-blue-400 font-medium" : "text-zinc-400"}`}>{name}</span>
+                      <span className={`text-mini capitalize ${isSelected ? "text-blue-400 font-medium" : "text-zinc-400"}`}>{name}</span>
                     </div>
                   );
                 })}
@@ -844,12 +882,13 @@ const InputPanelInner: React.FC<Props> = ({
           <div className="space-y-2 bg-zinc-900 rounded-lg p-2.5 border border-zinc-800">
             <div className="flex items-center justify-between">
               <label className="text-xs text-zinc-400">Script</label>
-              <span className={`text-[10px] tabular-nums ${scriptOverLimit ? "text-red-400 font-medium" : "text-zinc-500"}`}>
+              <span className={`text-micro tabular-nums ${scriptOverLimit ? "text-red-400 font-medium" : "text-zinc-500"}`}>
                 {scriptChars.toLocaleString()}/{SCRIPT_CHAR_LIMIT.toLocaleString()}
                 {scriptWords > 0 && !scriptOverLimit && <> · ≈ {fmtDuration(estAudioSecs)} of audio</>}
               </span>
             </div>
             <textarea
+              ref={scriptRef}
               value={scriptText}
               onChange={(e) => onScriptTextChange(e.target.value)}
               placeholder="Type or paste your script here..."
@@ -857,11 +896,12 @@ const InputPanelInner: React.FC<Props> = ({
               className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-300 placeholder:text-zinc-600 resize-y focus-visible:ring-2 focus-visible:ring-blue-500"
             />
             {scriptOverLimit && (
-              <p className="text-[11px] text-red-400">Script is over the {SCRIPT_CHAR_LIMIT.toLocaleString()}-character limit — trim it before generating.</p>
+              <p className="text-mini text-red-400">Script is over the {SCRIPT_CHAR_LIMIT.toLocaleString()}-character limit — trim it before generating.</p>
             )}
             {!avatarPath && scriptText.trim() && (
-              <p className="text-[11px] text-amber-400">Select a presenter above to generate the voiceover.</p>
+              <p className="text-mini text-amber-400">Select a presenter above to generate the voiceover.</p>
             )}
+            <DeliveryControl delivery={voiceDelivery} onChange={onVoiceDeliveryChange} onInsertTag={insertTag} />
             <Button
               variant="primary"
               fullWidth
@@ -889,7 +929,7 @@ const InputPanelInner: React.FC<Props> = ({
 
             {audioTakes.length > 0 && (
               <div className="pt-1.5 border-t border-zinc-700/30">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-1 block">Takes ({audioTakes.length})</label>
+                <label className="text-micro uppercase tracking-wider text-zinc-400 font-medium mb-1 block">Takes ({audioTakes.length})</label>
                 <div className="space-y-0.5">
                   {audioTakes.map((take) => (
                     <TakeRow
@@ -912,13 +952,13 @@ const InputPanelInner: React.FC<Props> = ({
                   max={durationInSeconds}
                   onChange={onAudioDelayChange}
                 />
-                <p className="text-[10px] text-zinc-500 mt-0.5">Silence before the voiceover starts.</p>
+                <p className="text-micro text-zinc-500 mt-0.5">Silence before the voiceover starts.</p>
               </div>
             )}
 
             {/* Background music */}
             <div className="pt-1.5 border-t border-zinc-700/30 space-y-1.5">
-              <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium block">Background Music</label>
+              <label className="text-micro uppercase tracking-wider text-zinc-400 font-medium block">Background Music</label>
               {!musicFile ? (
                 <FileUploadButton
                   accept="audio/*"
@@ -994,7 +1034,7 @@ const InputPanelInner: React.FC<Props> = ({
               <select
                 value={analysisProvider}
                 onChange={(e) => onAnalysisProviderChange(e.target.value as AnalysisProvider)}
-                className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-[10px] text-zinc-300 focus-visible:ring-2 focus-visible:ring-violet-500"
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-micro text-zinc-300 focus-visible:ring-2 focus-visible:ring-violet-500"
                 title="AI provider — used for both Suggest Visuals and ✦ Refine"
               >
                 {availableProviders.map((p) => (
@@ -1007,14 +1047,14 @@ const InputPanelInner: React.FC<Props> = ({
 
             {/* Visual pace — controls how often the visuals change */}
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-zinc-500 flex-shrink-0" title="How often the visuals change. Long beats are auto-split into this many shots.">Pace</span>
+              <span className="text-micro text-zinc-500 flex-shrink-0" title="How often the visuals change. Long beats are auto-split into this many shots.">Pace</span>
               <div className="flex flex-1 rounded-md overflow-hidden border border-zinc-700">
                 {PACE_OPTIONS.map((p) => (
                   <button
                     key={p.value}
                     type="button"
                     onClick={() => onVisualPaceChange(p.value)}
-                    className={`flex-1 px-2 py-1 text-[10px] font-medium transition-colors ${
+                    className={`flex-1 px-2 py-1 text-micro font-medium transition-colors ${
                       visualPace === p.value
                         ? "bg-violet-600 text-white"
                         : "bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700"
@@ -1028,16 +1068,16 @@ const InputPanelInner: React.FC<Props> = ({
             </div>
 
             {!scriptText.trim() && (
-              <p className="text-[10px] text-zinc-500">Write a script in step 1 and AI will suggest a visual for each beat — or just drop images below.</p>
+              <p className="text-micro text-zinc-500">Write a script in step 1 and AI will suggest a visual for each beat — or just drop images below.</p>
             )}
 
             {shotListStale && sceneSuggestions.length > 0 && (
               <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1.5">
-                <span className="text-[10px] text-amber-400 flex-1">Script changed — this shot list may be outdated.</span>
+                <span className="text-micro text-amber-400 flex-1">Script changed — this shot list may be outdated.</span>
                 <button
                   type="button"
                   onClick={onAnalyzeScript}
-                  className="text-[10px] text-amber-300 underline underline-offset-2 hover:text-amber-200 whitespace-nowrap"
+                  className="text-micro text-amber-300 underline underline-offset-2 hover:text-amber-200 whitespace-nowrap"
                 >
                   Re-analyze
                 </button>
@@ -1047,12 +1087,12 @@ const InputPanelInner: React.FC<Props> = ({
             {sceneSuggestions.length > 0 && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Shot List ({sceneSuggestions.length})</label>
+                  <label className="text-micro uppercase tracking-wider text-zinc-400 font-medium">Shot List ({sceneSuggestions.length})</label>
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={copyAllPrompts}
-                      className="text-[10px] px-2 py-0.5 text-violet-400 hover:bg-violet-600/20 rounded transition-colors"
+                      className="text-micro px-2 py-0.5 text-violet-400 hover:bg-violet-600/20 rounded transition-colors"
                       title="Copy every image prompt to the clipboard"
                     >
                       Copy all prompts
@@ -1060,7 +1100,7 @@ const InputPanelInner: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={onApplyAllSuggestions}
-                      className="text-[10px] px-2 py-0.5 bg-violet-600/20 text-violet-400 hover:bg-violet-600/30 rounded transition-colors"
+                      className="text-micro px-2 py-0.5 bg-violet-600/20 text-violet-400 hover:bg-violet-600/30 rounded transition-colors"
                     >
                       {imageFiles.length > 0 ? "Re-sync Timeline" : "Add All to Timeline"}
                     </button>
@@ -1142,7 +1182,7 @@ const InputPanelInner: React.FC<Props> = ({
       >
         <div className="space-y-2">
           {transcript.length === 0 && (
-            <p className="text-[11px] text-zinc-500">Captions appear automatically after you generate a voiceover. You can re-transcribe or fine-tune them here.</p>
+            <p className="text-mini text-zinc-500">Captions appear automatically after you generate a voiceover. You can re-transcribe or fine-tune them here.</p>
           )}
           <Button
             variant="primary"
@@ -1221,7 +1261,7 @@ const InputPanelInner: React.FC<Props> = ({
 
           {/* Caption style controls — set-once, collapsed to keep the editor front */}
           <details className="group border-t border-zinc-800 pt-2 mt-2">
-            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-[11px] text-zinc-400 hover:text-zinc-200 select-none">
+            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-mini text-zinc-400 hover:text-zinc-200 select-none">
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
               Caption styling — font, position, colors
             </summary>
@@ -1250,6 +1290,20 @@ const InputPanelInner: React.FC<Props> = ({
               max={8}
               onChange={(v) => onStyleChange({ wordsPerCaption: v })}
             />
+            <div>
+              <label className="flex justify-between text-xs text-zinc-400 mb-0.5">
+                <span>Caption Motion</span>
+              </label>
+              <select
+                value={style.captionAnimation ?? "clean"}
+                onChange={(e) => onStyleChange({ captionAnimation: e.target.value as VideoStyle["captionAnimation"] })}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <option value="clean">Clean — fade in, highlight sweep</option>
+                <option value="dynamic">Dynamic — word pop-in + lift</option>
+              </select>
+              <p className="text-micro text-zinc-500 mt-0.5">Dynamic springs each word in and lifts the spoken word — preview with audio playing.</p>
+            </div>
             <div className="space-y-2">
               <ColorControl
                 label="Text"
@@ -1290,13 +1344,13 @@ const InputPanelInner: React.FC<Props> = ({
         <div className="space-y-3">
           {/* Avatar overlay placement — set-once brand defaults, collapsed */}
           <details className="group bg-zinc-900 rounded-lg border border-zinc-800">
-            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-[10px] uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
+            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-micro uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
               Avatar Overlay
             </summary>
             <div className="space-y-2 px-2.5 pb-2.5">
             {!avatarPath && (
-              <p className="text-[10px] text-zinc-500">Select a presenter in step 1 to see the avatar overlay.</p>
+              <p className="text-micro text-zinc-500">Select a presenter in step 1 to see the avatar overlay.</p>
             )}
             <SliderControl
               label="Avatar Size"
@@ -1318,7 +1372,7 @@ const InputPanelInner: React.FC<Props> = ({
                   <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
-              <p className="text-[10px] text-zinc-500 mt-0.5">How the avatar reacts to the voice — preview it with audio playing.</p>
+              <p className="text-micro text-zinc-500 mt-0.5">How the avatar reacts to the voice — preview it with audio playing.</p>
             </div>
             <div>
               <label className="flex justify-between text-xs text-zinc-400 mb-0.5">
@@ -1353,7 +1407,7 @@ const InputPanelInner: React.FC<Props> = ({
 
           {/* Intro */}
           <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium block">Intro</label>
+            <label className="text-micro uppercase tracking-wider text-zinc-400 font-medium block">Intro</label>
             <select
               value={introType}
               onChange={(e) => handleIntroTypeChange(e.target.value as IntroType)}
@@ -1425,7 +1479,7 @@ const InputPanelInner: React.FC<Props> = ({
 
           {/* Outro */}
           <div className="space-y-2">
-            <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium block">Outro</label>
+            <label className="text-micro uppercase tracking-wider text-zinc-400 font-medium block">Outro</label>
             <select
               value={outroType}
               onChange={(e) => handleOutroTypeChange(e.target.value as OutroType)}
@@ -1638,7 +1692,7 @@ function Section({
       >
         <span
           aria-hidden="true"
-          className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-semibold transition-colors ${
+          className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-micro font-semibold transition-colors ${
             done ? "bg-green-500/20 text-green-400" : "bg-zinc-800 text-zinc-500 group-hover:text-zinc-300"
           }`}
         >
@@ -1654,7 +1708,7 @@ function Section({
           {title}
         </h2>
         {status && (
-          <span className="ml-auto text-[10px] text-zinc-500 truncate max-w-[150px] text-right">{status}</span>
+          <span className="ml-auto text-micro text-zinc-500 truncate max-w-[150px] text-right">{status}</span>
         )}
         <span
           aria-hidden="true"
@@ -1844,6 +1898,335 @@ function SliderControl({
   );
 }
 
+const DELIVERY_OPTIONS: { value: DeliveryPreset; label: string }[] = [
+  { value: "anchor", label: "Anchor" },
+  { value: "default", label: "Default" },
+  { value: "measured", label: "Measured" },
+  { value: "warm", label: "Warm" },
+  { value: "energetic", label: "Energetic" },
+];
+
+// Per-take delivery: pick a preset or fine-tune the ElevenLabs voice_settings.
+// Same voice throughout — these only steer how it's performed.
+function DeliveryControl({
+  delivery,
+  onChange,
+  onInsertTag,
+}: {
+  delivery: VoiceDelivery;
+  onChange: (d: VoiceDelivery) => void;
+  onInsertTag: (tag: string) => void;
+}) {
+  const [advanced, setAdvanced] = useState(false);
+  const [showSpec, setShowSpec] = useState(false);
+  const [specText, setSpecText] = useState("");
+  const [specMsg, setSpecMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [showNotes, setShowNotes] = useState(false);
+  const s = delivery.settings;
+  const setPreset = (preset: DeliveryPreset) => {
+    if (preset === "custom") return;
+    onChange({ ...delivery, preset, settings: { ...DELIVERY_PRESETS[preset] } });
+  };
+  const setSetting = (key: keyof VoiceSettings, v: number | boolean) => {
+    onChange({ ...delivery, preset: "custom", settings: { ...s, [key]: v } });
+  };
+  const toggleV3 = () => onChange({ ...delivery, useV3: !delivery.useV3 });
+
+  const openSpec = () => {
+    const next = !showSpec;
+    setShowSpec(next);
+    setSpecMsg(null);
+    if (next) setSpecText(delivery.specRaw ?? ""); // prefill with the stored spec to edit
+  };
+
+  const applySpec = () => {
+    const parsed = parseVoiceSpec(specText);
+    const bits: string[] = [];
+    const next: VoiceDelivery = { ...delivery };
+    if (parsed.settings) { next.settings = parsed.settings; next.preset = "custom"; bits.push("voice settings"); }
+    if (parsed.tags) { next.tags = parsed.tags; bits.push(`${parsed.tags.length} tags`); }
+    if (parsed.prosody) next.prosody = parsed.prosody;
+    if (parsed.voiceDescription) next.voiceDescription = parsed.voiceDescription;
+    if (!bits.length) {
+      setSpecMsg({ ok: false, text: "Couldn't find a voice_settings or suggested_audio_tags block — check the format." });
+      return;
+    }
+    next.specRaw = specText.trim() || undefined; // keep the verbatim paste
+    onChange(next);
+    setSpecMsg({ ok: true, text: `Applied ${bits.join(" · ")}.` });
+    setShowSpec(false);
+  };
+
+  const paletteTags: readonly string[] = delivery.tags?.length ? delivery.tags : V3_AUDIO_TAGS;
+
+  return (
+    <div className="space-y-1.5 bg-zinc-900 rounded-lg border border-zinc-800 p-2.5">
+      <div className="flex items-center justify-between">
+        <label className="text-xs text-zinc-300 font-medium">Delivery</label>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={openSpec} className="text-micro text-violet-400 hover:text-violet-300">
+            {showSpec ? "Close" : delivery.specRaw ? "Edit spec" : "Paste spec"}
+          </button>
+          <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-micro text-zinc-500 hover:text-zinc-300">
+            {advanced ? "Hide fine-tune" : "Fine-tune"}
+          </button>
+        </div>
+      </div>
+
+      {/* Paste-a-voice-spec: parse the blob once per script → settings + tags + notes */}
+      {showSpec && (
+        <div className="space-y-1.5 rounded-md border border-violet-500/30 bg-zinc-950/40 p-2">
+          <textarea
+            value={specText}
+            onChange={(e) => setSpecText(e.target.value)}
+            rows={5}
+            placeholder={'Paste the voice spec, e.g.\nvoice_settings: {"stability": 0.5, "similarity_boost": 0.78, "style": 0.25, "use_speaker_boost": true}\nsuggested_audio_tags: conversational, brisk, warm, confident\nprosody: ...\nvoice_description: ...'}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-micro text-zinc-300 placeholder:text-zinc-600 resize-y focus-visible:ring-2 focus-visible:ring-violet-500 font-mono"
+          />
+          <div className="flex items-center gap-2">
+            <Chip onClick={applySpec} className="px-2.5 py-1 text-micro rounded bg-violet-600 text-white hover:bg-violet-500">Apply spec</Chip>
+            <span className="text-micro text-zinc-500">Reads voice_settings + tags; keeps prosody/description as notes.</span>
+          </div>
+        </div>
+      )}
+      {specMsg && (
+        <p className={`text-micro ${specMsg.ok ? "text-green-400" : "text-amber-400"}`}>{specMsg.text}</p>
+      )}
+
+      <div className="flex gap-1">
+        {DELIVERY_OPTIONS.map((o) => (
+          <Chip
+            key={o.value}
+            onClick={() => setPreset(o.value)}
+            className={`flex-1 px-2 py-1 text-micro rounded ${
+              delivery.preset === o.value
+                ? "bg-zinc-700 text-zinc-100"
+                : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            {o.label}
+          </Chip>
+        ))}
+      </div>
+      {delivery.preset === "custom" && (
+        delivery.specRaw ? (
+          <p className="text-micro text-emerald-400">
+            ✓ Spec applied — stability {s.stability} · style {s.style}
+            {s.use_speaker_boost ? " · boost on" : ""}
+            {delivery.tags?.length ? ` · ${delivery.tags.length} tags` : ""}
+          </p>
+        ) : (
+          <p className="text-micro text-zinc-500">Custom delivery{!advanced ? " — open Fine-tune to adjust." : ""}</p>
+        )
+      )}
+      {advanced && (
+        <div className="space-y-1.5 pt-1">
+          <SliderControl label="Stability" value={s.stability} min={0} max={1} step={0.05} onChange={(v) => setSetting("stability", v)} helpText="Lower = more emotional range; higher = steadier." />
+          <SliderControl label="Similarity" value={s.similarity_boost} min={0} max={1} step={0.01} onChange={(v) => setSetting("similarity_boost", v)} helpText="How tightly to cling to the original voice timbre." />
+          <SliderControl label="Style" value={s.style} min={0} max={1} step={0.05} onChange={(v) => setSetting("style", v)} helpText="Exaggerates the voice's characterful delivery." />
+          <SliderControl label="Speed" value={s.speed} min={0.7} max={1.2} step={0.01} onChange={(v) => setSetting("speed", v)} helpText="1.0 = natural pace." />
+          <label className="flex items-center justify-between cursor-pointer select-none">
+            <span className="text-xs text-zinc-400">Speaker boost</span>
+            <span className="relative inline-flex">
+              <input type="checkbox" checked={!!s.use_speaker_boost} onChange={(e) => setSetting("use_speaker_boost", e.target.checked)} className="peer sr-only" />
+              <span className="w-7 h-4 rounded-full bg-zinc-700 peer-checked:bg-blue-600 transition-colors" />
+              <span className="absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform peer-checked:translate-x-3" />
+            </span>
+          </label>
+        </div>
+      )}
+
+      {/* Spec notes (prosody / voice_description / raw) — reference only, kept per project */}
+      {(delivery.prosody || delivery.voiceDescription || delivery.specRaw) && (
+        <div className="pt-1">
+          <button type="button" onClick={() => setShowNotes((v) => !v)} className="text-micro text-zinc-500 hover:text-zinc-300">
+            {showNotes ? "Hide spec notes" : "Spec notes"}
+          </button>
+          {showNotes && (
+            <div className="mt-1 space-y-1.5 rounded-md bg-zinc-950/40 border border-zinc-800 p-2">
+              {delivery.voiceDescription && (
+                <p className="text-micro text-zinc-400"><span className="text-zinc-500">Voice:</span> {delivery.voiceDescription}</p>
+              )}
+              {delivery.prosody && (
+                <p className="text-micro text-zinc-400"><span className="text-zinc-500">Prosody:</span> {delivery.prosody}</p>
+              )}
+              <p className="text-micro text-zinc-600">Reference only — ElevenLabs has no field for these; use them to steer your script wording and tag choices.</p>
+              {delivery.specRaw && (
+                <div className="pt-1 border-t border-zinc-800/80">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-micro text-zinc-500">Raw spec</span>
+                    <Chip
+                      onClick={() => navigator.clipboard?.writeText(delivery.specRaw ?? "")}
+                      className="px-1.5 py-0.5 text-micro rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                      title="Copy the raw spec"
+                    >
+                      Copy
+                    </Chip>
+                  </div>
+                  <pre className="text-micro text-zinc-500 whitespace-pre-wrap break-words max-h-28 overflow-y-auto font-mono">{delivery.specRaw}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Expressive (v3) mode — inline audio tags. Off by default. */}
+      <div className="pt-1.5 mt-0.5 border-t border-zinc-800 space-y-1.5">
+        <label className="flex items-center justify-between cursor-pointer select-none">
+          <span className="text-micro text-zinc-400">Expressive mode <span className="text-zinc-600">(v3 · alpha)</span></span>
+          <span className="relative inline-flex">
+            <input type="checkbox" checked={!!delivery.useV3} onChange={toggleV3} className="peer sr-only" />
+            <span className="w-7 h-4 rounded-full bg-zinc-700 peer-checked:bg-violet-600 transition-colors" />
+            <span className="absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform peer-checked:translate-x-3" />
+          </span>
+        </label>
+        {delivery.useV3 && (
+          <>
+            <div className="flex flex-wrap gap-1">
+              {paletteTags.map((tag) => (
+                <Chip
+                  key={tag}
+                  onClick={() => onInsertTag(tag)}
+                  className="px-1.5 py-0.5 text-micro rounded bg-zinc-800 text-violet-300 hover:bg-zinc-700"
+                  title={`Insert [${tag}] at the cursor`}
+                >
+                  {tag}
+                </Chip>
+              ))}
+            </div>
+            <p className="text-micro text-zinc-500">
+              {delivery.tags?.length ? "Tags from your pasted spec. " : ""}Tags steer delivery only — spoken cues, never read aloud or shown in captions. v3 is non-deterministic and needs ElevenLabs v3 access.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Read-only posting/social brief captured from the daily digest, shown on the
+// project page. Copy buttons make it quick to grab when actually posting.
+function PostDetailsCard({ meta }: { meta: TopicMeta }) {
+  const copy = (s?: string) => { if (s) navigator.clipboard?.writeText(s); };
+  const t = meta.postAt ? new Date(meta.postAt) : null;
+  const CopyRow = ({ label, value }: { label: string; value: string }) => (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="text-micro text-zinc-500">{label}</span>
+        <Chip onClick={() => copy(value)} className="px-1.5 py-0.5 text-micro rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200" title={`Copy ${label.toLowerCase()}`}>Copy</Chip>
+      </div>
+      <p className="text-mini text-zinc-300 whitespace-pre-wrap break-words">{value}</p>
+    </div>
+  );
+  return (
+    <details open className="group bg-zinc-900 rounded-lg border border-zinc-800">
+      <summary className="flex items-center gap-1.5 cursor-pointer list-none text-micro uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
+        Post details
+        {meta.score != null && <span className="ml-auto text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-300 tabular-nums normal-case">{meta.score}</span>}
+      </summary>
+      <div className="space-y-2 px-2.5 pb-2.5">
+        {t && (
+          <div className="flex items-center gap-2 text-mini">
+            <span className="text-zinc-500">Post</span>
+            <span className="text-zinc-200 tabular-nums">{formatTime(t, ZONES.WAT.id)} <span className="text-zinc-600">WAT</span> · {formatTime(t, ZONES.ET.id)} <span className="text-zinc-600">ET</span></span>
+          </div>
+        )}
+        {meta.postTiming && <p className="text-mini text-zinc-400"><span className="text-zinc-500">Timing:</span> {meta.postTiming}</p>}
+        {(meta.platform || meta.why) && (
+          <p className="text-mini text-zinc-400">
+            {meta.platform && <span className="text-zinc-300">{meta.platform}</span>}
+            {meta.platform && meta.why ? " — " : ""}
+            {meta.why}
+          </p>
+        )}
+        {meta.thumbnail && <CopyRow label="Thumbnail" value={meta.thumbnail} />}
+        {meta.description && <CopyRow label="Description" value={meta.description} />}
+        {meta.hashtags && <CopyRow label="Hashtags" value={meta.hashtags} />}
+        {meta.captions && meta.captions.length > 0 && (
+          <div>
+            <span className="text-micro text-zinc-500">On-screen captions</span>
+            <ul className="mt-0.5 space-y-0.5">
+              {meta.captions.map((c, i) => <li key={i} className="text-mini text-zinc-300">• {c}</li>)}
+            </ul>
+          </div>
+        )}
+        {meta.twitterKeywords && meta.twitterKeywords.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-micro text-zinc-500">Twitter keywords</span>
+              <Chip onClick={() => copy(meta.twitterKeywords!.join(", "))} className="px-1.5 py-0.5 text-micro rounded bg-zinc-800 text-zinc-400 hover:text-zinc-200" title="Copy all keywords">Copy</Chip>
+            </div>
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {meta.twitterKeywords.map((k, i) => <span key={i} className="text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">{k}</span>)}
+            </div>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// For projects that predate the digest capture: paste the digest (or one
+// topic's block) and attach its post details, matched to the project by title.
+function AttachPostDetails({ projectName, onAttach }: { projectName: string; onAttach: (m: TopicMeta) => void }) {
+  const [text, setText] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const attach = () => {
+    const topics = parseDigest(text);
+    if (topics.length === 0) {
+      setMsg({ ok: false, text: "No topics found — paste the digest or one topic block." });
+      return;
+    }
+    const pn = norm(projectName);
+    const t =
+      topics.find((x) => norm(x.title) === pn) ??
+      topics.find((x) => norm(x.title).includes(pn) || pn.includes(norm(x.title))) ??
+      (topics.length === 1 ? topics[0] : null);
+    if (!t) {
+      setMsg({ ok: false, text: `Found ${topics.length} topics but none match “${projectName}”. Paste just this topic's block.` });
+      return;
+    }
+    onAttach({
+      postTiming: t.postTiming,
+      platform: t.bestPlatform,
+      score: t.score,
+      why: t.why,
+      thumbnail: t.thumbnail,
+      description: t.description,
+      hashtags: t.hashtags,
+      captions: t.captions,
+      twitterKeywords: t.twitterKeywords,
+    });
+    setMsg({ ok: true, text: `Attached details from “${t.title}”.` });
+    setText("");
+  };
+  return (
+    <details className="group bg-zinc-900 rounded-lg border border-zinc-800">
+      <summary className="flex items-center gap-1.5 cursor-pointer list-none text-micro uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
+        Add post details
+      </summary>
+      <div className="space-y-1.5 px-2.5 pb-2.5">
+        <p className="text-micro text-zinc-500">Paste the digest (or just this topic&apos;s block) to attach its thumbnail, description, hashtags, captions &amp; keywords. Matched to this project by title.</p>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={4}
+          placeholder="Paste the digest…"
+          className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-micro text-zinc-300 placeholder:text-zinc-600 resize-y focus-visible:ring-2 focus-visible:ring-violet-500 font-mono"
+        />
+        <div className="flex items-center gap-2">
+          <Chip onClick={attach} className="px-2.5 py-1 text-micro rounded bg-violet-600 text-white hover:bg-violet-500">Attach</Chip>
+          {msg && <span className={`text-micro ${msg.ok ? "text-emerald-400" : "text-amber-400"}`}>{msg.text}</span>}
+        </div>
+      </div>
+    </details>
+  );
+}
+
 function TimeInput({
   label,
   value,
@@ -1921,7 +2304,7 @@ function CaptionEditor({
     <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-2.5 space-y-2">
       <div className="flex items-center justify-between">
         <label className="text-xs text-zinc-400">Edit captions</label>
-        {dirty && <span className="text-[10px] text-amber-400">unsaved</span>}
+        {dirty && <span className="text-micro text-amber-400">unsaved</span>}
       </div>
       <textarea
         value={editText}
@@ -2128,7 +2511,7 @@ function MiniTimeline({ images, duration }: { images: ImageSegment[]; duration: 
             style={{ left: `${left}%`, width: `${Math.max(width, 0.5)}%` }}
             title={`Image ${i + 1}: ${img.startTime.toFixed(1)}s – ${img.endTime.toFixed(1)}s`}
           >
-            <span className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-bold drop-shadow">
+            <span className="absolute inset-0 flex items-center justify-center text-micro text-white font-bold drop-shadow">
               {i + 1}
             </span>
           </div>
@@ -2136,8 +2519,8 @@ function MiniTimeline({ images, duration }: { images: ImageSegment[]; duration: 
       })}
       {/* Time markers */}
       <div className="absolute bottom-0 left-0 right-0 flex justify-between px-1">
-        <span className="text-[10px] text-zinc-400">0s</span>
-        <span className="text-[10px] text-zinc-400">{duration.toFixed(0)}s</span>
+        <span className="text-micro text-zinc-400">0s</span>
+        <span className="text-micro text-zinc-400">{duration.toFixed(0)}s</span>
       </div>
     </div>
   );
@@ -2244,7 +2627,7 @@ function DraggableImageCard({
       {/* Drag handle + thumbnail or placeholder */}
       <div className="flex items-center gap-2 flex-shrink-0">
         {!isPlaceholder && (
-          <span className="text-zinc-600 text-[10px] cursor-grab active:cursor-grabbing select-none" title="Drag to reorder">
+          <span className="text-zinc-600 text-micro cursor-grab active:cursor-grabbing select-none" title="Drag to reorder">
             ⠿
           </span>
         )}
@@ -2277,15 +2660,15 @@ function DraggableImageCard({
 
       {/* Name/description + Animation */}
       <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
+        <span className={`w-4 h-4 rounded flex items-center justify-center text-micro font-bold text-white flex-shrink-0 ${TIMELINE_COLORS[index % TIMELINE_COLORS.length]}`}>
           {index + 1}
         </span>
         {isChart ? (
-          <span className="text-[11px] text-zinc-300 truncate">
+          <span className="text-mini text-zinc-300 truncate">
             {image?.chart?.ticker} chart <span className="text-zinc-500">· animated</span>
           </span>
         ) : isPlaceholder ? (
-          <span className="text-[10px] text-zinc-500 truncate italic" title={file.name.replace(/^placeholder-/, "").replace(/\.png$/, "")}>
+          <span className="text-micro text-zinc-500 truncate italic" title={file.name.replace(/^placeholder-/, "").replace(/\.png$/, "")}>
             Drop image here
           </span>
         ) : (
@@ -2296,7 +2679,7 @@ function DraggableImageCard({
               onAnimationChange(index, e.target.value as ImageAnimation);
             }}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[11px] text-zinc-400 focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-mini text-zinc-400 focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             {IMAGE_ANIMATIONS.map((a) => (
               <option key={a.value} value={a.value}>{a.label}</option>
@@ -2331,6 +2714,6 @@ function SaveStatus({ lastSavedAt }: { lastSavedAt: number }) {
     `Saved ${Math.floor(seconds / 60)}m ago`;
 
   return (
-    <span className="text-[10px] text-zinc-500 leading-none">{label}</span>
+    <span className="text-micro text-zinc-500 leading-none">{label}</span>
   );
 }

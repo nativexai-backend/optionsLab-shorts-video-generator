@@ -189,13 +189,13 @@ export const ThumbnailModal: React.FC<Props> = ({
         <div className="w-72 flex flex-col gap-3 min-h-0">
           <div>
             <h3 className="text-sm font-medium text-zinc-200">Thumbnail</h3>
-            <p className="text-[11px] text-zinc-500 mt-0.5">720×1280 — same size as the video. Pick an image, write the copy, download.</p>
+            <p className="text-mini text-zinc-500 mt-0.5">720×1280 — same size as the video. Pick an image, write the copy, download.</p>
           </div>
 
           <div className="min-h-0 overflow-y-auto">
             <label className="text-xs text-zinc-400 mb-1.5 block">Background image</label>
             {assignedImages.length === 0 ? (
-              <p className="text-[11px] text-zinc-500 bg-zinc-800/60 rounded-lg p-2.5">
+              <p className="text-mini text-zinc-500 bg-zinc-800/60 rounded-lg p-2.5">
                 No images in this project yet — add them in ② Visuals first.
               </p>
             ) : (
@@ -228,7 +228,7 @@ export const ThumbnailModal: React.FC<Props> = ({
               placeholder={`Apple's Secret CEO Already Chosen`}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2.5 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 resize-none focus-visible:ring-2 focus-visible:ring-blue-500"
             />
-            <p className="text-[10px] text-zinc-500 mt-1">Bold, bottom-left. Press Enter for a manual line break.</p>
+            <p className="text-micro text-zinc-500 mt-1">Bold, bottom-left. Press Enter for a manual line break.</p>
           </div>
 
           <div>
@@ -258,7 +258,7 @@ export const ThumbnailModal: React.FC<Props> = ({
               onClick={handleDownload}
               disabled={assignedImages.length === 0}
               className="px-4 py-1.5 text-xs font-medium rounded-md text-white transition-colors disabled:opacity-50"
-              style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)" }}
+              style={{ background: "var(--gradient-brand)" }}
             >
               Download PNG
             </button>

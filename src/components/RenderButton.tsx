@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { Chip } from "./IconButton";
 import { VideoProps } from "../remotion/types";
 
 interface Props {
@@ -262,7 +263,7 @@ const RenderButtonInner: React.FC<Props> = ({
             ? "text-white shadow-lg shadow-blue-900/30 hover:opacity-90"
             : "bg-zinc-800 text-zinc-500 border border-zinc-700"
         }`}
-        style={ready && !rendering ? { background: "linear-gradient(135deg, #2563eb, #7c3aed)" } : undefined}
+        style={ready && !rendering ? { background: "var(--gradient-brand)" } : undefined}
       >
         {rendering ? (
           <>
@@ -288,7 +289,7 @@ const RenderButtonInner: React.FC<Props> = ({
             <svg className="animate-spin h-5 w-5 text-blue-400 flex-shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-zinc-200 font-medium">{stageLabel}</p>
-              <p className="text-[11px] text-zinc-500 tabular-nums">{elapsed}s elapsed</p>
+              <p className="text-mini text-zinc-500 tabular-nums">{elapsed}s elapsed</p>
             </div>
           </div>
           <div className="mt-3 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
@@ -297,7 +298,7 @@ const RenderButtonInner: React.FC<Props> = ({
               style={{ width: jobStatus === "rendering" ? `${Math.max(2, pct)}%` : "2%" }}
             />
           </div>
-          <p className="text-[11px] text-zinc-500 mt-2.5 leading-snug">
+          <p className="text-mini text-zinc-500 mt-2.5 leading-snug">
             The render keeps going on the server — your download starts automatically when it&apos;s done, even if you reload this page.
           </p>
         </div>
@@ -307,42 +308,42 @@ const RenderButtonInner: React.FC<Props> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowNameModal(false)}>
           <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-80 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-medium text-zinc-200 mb-3">Export Video</h3>
-            <label className="text-[11px] text-zinc-500 mb-1 block">File name</label>
+            <label className="text-mini text-zinc-500 mb-1 block">File name</label>
             <input
               ref={inputRef}
               type="text"
               value={exportName}
               onChange={(e) => setExportName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleExport(); if (e.key === "Escape") setShowNameModal(false); }}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 mb-3"
               placeholder="my-video"
             />
-            <label className="text-[11px] text-zinc-500 mb-1.5 block">Resolution</label>
+            <label className="text-mini text-zinc-500 mb-1.5 block">Resolution</label>
             <div className="flex gap-2 mb-3">
-              <button
+              <Chip
                 onClick={() => setResolution("1.5")}
-                className={`flex-1 px-2 py-2 rounded-lg border text-xs transition-colors ${
+                className={`flex-1 px-2 py-2 rounded-lg border text-xs ${
                   resolution === "1.5"
                     ? "border-blue-500 bg-blue-500/10 text-blue-300"
                     : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
                 }`}
               >
                 <span className="block font-medium">1080 × 1920</span>
-                <span className="block text-[10px] opacity-70">Best quality (recommended)</span>
-              </button>
-              <button
+                <span className="block text-micro opacity-70">Best quality (recommended)</span>
+              </Chip>
+              <Chip
                 onClick={() => setResolution("1")}
-                className={`flex-1 px-2 py-2 rounded-lg border text-xs transition-colors ${
+                className={`flex-1 px-2 py-2 rounded-lg border text-xs ${
                   resolution === "1"
                     ? "border-blue-500 bg-blue-500/10 text-blue-300"
                     : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
                 }`}
               >
                 <span className="block font-medium">720 × 1280</span>
-                <span className="block text-[10px] opacity-70">Faster export</span>
-              </button>
+                <span className="block text-micro opacity-70">Faster export</span>
+              </Chip>
             </div>
-            <p className="text-[11px] text-zinc-500 mb-4">
+            <p className="text-mini text-zinc-500 mb-4">
               ≈ {Math.round(videoProps.durationInSeconds)}s video · typical export takes 1–3 minutes
             </p>
             <div className="flex gap-2 justify-end">
@@ -355,7 +356,7 @@ const RenderButtonInner: React.FC<Props> = ({
               <button
                 onClick={handleExport}
                 className="px-4 py-1.5 text-xs font-medium rounded-md text-white transition-colors"
-                style={{ background: "linear-gradient(135deg, #2563eb, #7c3aed)" }}
+                style={{ background: "var(--gradient-brand)" }}
               >
                 Export MP4
               </button>

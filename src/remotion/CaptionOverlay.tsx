@@ -2,10 +2,30 @@ import React, { useMemo } from "react";
 import {
   AbsoluteFill,
   interpolate,
+  spring,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
 import { TranscriptWord, VideoStyle } from "./types";
+
+// Linear-blend two hex colors → "rgb(...)". Frame-driven so it renders to MP4
+// (a CSS `transition` would silently no-op during server-side rendering).
+function parseHex(hex: string): [number, number, number] {
+  const s = hex.replace("#", "");
+  return [
+    parseInt(s.slice(0, 2), 16),
+    parseInt(s.slice(2, 4), 16),
+    parseInt(s.slice(4, 6), 16),
+  ];
+}
+function hexLerp(a: string, b: string, t: number): string {
+  const [r1, g1, b1] = parseHex(a);
+  const [r2, g2, b2] = parseHex(b);
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const bl = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
 
 interface Props {
   transcript: TranscriptWord[];
@@ -81,11 +101,15 @@ export const CaptionOverlay: React.FC<Props> = ({ transcript, style, audioDelay 
 
   const groupStartFrame = Math.round((activeGroup.start + audioDelay) * fps);
   const frameSinceStart = frame - groupStartFrame;
+  const isDynamic = style.captionAnimation === "dynamic";
 
-  // Quick fade-in over ~4 frames, no bounce/scale
-  const opacity = interpolate(frameSinceStart, [0, 4], [0, 1], {
-    extrapolateRight: "clamp",
-  });
+  // Group container fade-in. In "dynamic" the per-word springs carry the
+  // entrance, so the container stays fully visible and only the words animate.
+  const opacity = isDynamic
+    ? 1
+    : interpolate(frameSinceStart, [0, 4], [0, 1], { extrapolateRight: "clamp" });
+
+  const STAGGER = 1.5; // frames between consecutive word pop-ins
 
   return (
     <AbsoluteFill
@@ -113,25 +137,65 @@ export const CaptionOverlay: React.FC<Props> = ({ transcript, style, audioDelay 
         }}
       >
         {activeGroup.words.map((word, i) => {
-          // A word is "reached" once current time passes its start.
-          // Highlight the word currently being spoken (between start and end),
-          // and keep already-spoken words highlighted too for smooth reading.
-          const isReached = currentTimeSec >= word.start;
-          const isCurrent = currentTimeSec >= word.start && currentTimeSec <= word.end;
-          const color = isCurrent
-            ? style.highlightColor
-            : isReached
-              ? style.textColor
-              : `${style.textColor}88`;
+          // Smooth dim → full as the word is reached (~3 frames), then a
+          // highlight sweep that rises at word.start and falls after word.end.
+          // All frame-driven, so it renders identically in preview and export.
+          const reachT = interpolate(
+            currentTimeSec,
+            [word.start - 0.05, word.start + 0.08],
+            [0, 1],
+            { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+          );
+          // Highlight sweep: rise just before word.start, hold while spoken,
+          // fall after word.end. Build strictly-increasing breakpoints so short
+          // (or zero-length) words can't collide two stops — interpolate()
+          // requires a strictly monotonic input range.
+          const rise = Math.min(0.08, Math.max(0.01, (word.end - word.start) * 0.5));
+          const hStart = word.start - 0.02;
+          const hPeak = word.start + rise;
+          const hHold = Math.max(hPeak + 0.001, word.end);
+          const hEnd = hHold + 0.14;
+          const highlightT = interpolate(
+            currentTimeSec,
+            [hStart, hPeak, hHold, hEnd],
+            [0, 1, 1, 0],
+            { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+          );
+          // Dimming for unspoken words is carried by opacity below; color only
+          // needs the spoken-word highlight sweep.
+          const color = hexLerp(style.textColor, style.highlightColor, highlightT);
+
+          // "dynamic": staggered spring pop-in + a gentle lift while spoken.
+          let transform: string | undefined;
+          let wordOpacity = 1;
+          if (isDynamic) {
+            const ent = spring({
+              frame: frameSinceStart - i * STAGGER,
+              fps,
+              config: { damping: 13, stiffness: 200, mass: 0.5 },
+            });
+            const entScale = interpolate(ent, [0, 1], [0.6, 1]);
+            const entY = interpolate(ent, [0, 1], [14, 0]);
+            const lift = 1 + 0.08 * highlightT;
+            transform = `translateY(${entY}px) scale(${entScale * lift})`;
+            wordOpacity = ent;
+          } else {
+            // "clean": carry the dim→full appearance as opacity so unspoken
+            // words read softer, matching the prior look without a hard pop.
+            wordOpacity = interpolate(reachT, [0, 1], [0.53, 1]);
+          }
 
           return (
             <span
               key={i}
               style={{
                 color,
+                opacity: wordOpacity,
+                transform,
+                willChange: isDynamic ? "transform, opacity" : undefined,
+                display: isDynamic ? "inline-block" : undefined,
                 textShadow: `0 2px 8px ${style.shadowColor}, 0 4px 20px ${style.shadowColor}cc, 0 0 40px ${style.shadowColor}88`,
                 WebkitTextStroke: `1.5px ${style.shadowColor}44`,
-                transition: "color 0.08s ease",
               }}
             >
               {word.word}
