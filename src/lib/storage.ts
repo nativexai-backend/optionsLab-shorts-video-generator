@@ -109,6 +109,7 @@ export interface SerializableState {
   voiceDelivery?: {
     preset: string;
     settings: { stability: number; similarity_boost: number; style: number; speed: number; use_speaker_boost?: boolean };
+    voiceId?: string; // pinned ElevenLabs voice id (overrides avatar→voice map)
     useV3?: boolean;
     tags?: string[];
     prosody?: string;

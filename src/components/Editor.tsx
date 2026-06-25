@@ -1164,7 +1164,9 @@ export const Editor: React.FC = () => {
     }
     // Extract avatar name from path like "/avatars/claire.png"
     const filename = avatarPath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
-    const voiceId = AVATAR_VOICE_MAP[filename];
+    // A digest-pinned voice (from triage) wins over the avatar→voice map, so the
+    // generated TTS reproduces the assigned ElevenLabs voice exactly.
+    const voiceId = voiceDelivery.voiceId || AVATAR_VOICE_MAP[filename];
     if (!voiceId) {
       showToast(`No voice mapped for avatar "${filename}"`, "error");
       return;

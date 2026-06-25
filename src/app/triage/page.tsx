@@ -112,13 +112,26 @@ export default function TriagePage() {
     localStorage.setItem(LOG_KEY, JSON.stringify([...existing, ...additions]));
   };
 
-  // Map the digest's voice gender → one of our existing characters. Female →
-  // Claire; male → Nathan/Ethan shuffled across the slate. (Digest persona
-  // voice_ids are ignored; we reuse our own designed characters.)
+  // Pick the on-screen face from the digest's assigned character name
+  // ("Claire Donovan" → claire.png). The voice itself is pinned separately via
+  // the digest's voice_id (see stateForTopic), so face and voice both match the
+  // assignment. Falls back to a gender-based pick when the character has no
+  // matching avatar art (older digests with no character line).
+  const AVATAR_BY_NAME: Record<string, string> = {
+    claire: "/avatars/claire.png",
+    ethan: "/avatars/ethan.png",
+    nathan: "/avatars/nathan.png",
+    malik: "/avatars/malik.png",
+    daniel: "/avatars/daniel.png",
+    lucas: "/avatars/lucas.png",
+  };
   const FEMALE_AVATAR = "/avatars/claire.png";
   const MALE_AVATARS = ["/avatars/nathan.png", "/avatars/ethan.png"];
-  const avatarFor = (gender: string | undefined, maleSeq: number): string =>
-    (gender ?? "").toLowerCase().startsWith("f") ? FEMALE_AVATAR : MALE_AVATARS[maleSeq % MALE_AVATARS.length];
+  const avatarFor = (r: Row, maleSeq: number): string => {
+    const first = (r.character ?? "").trim().split(/\s+/)[0]?.toLowerCase();
+    if (first && AVATAR_BY_NAME[first]) return AVATAR_BY_NAME[first];
+    return (r.gender ?? "").toLowerCase().startsWith("f") ? FEMALE_AVATAR : MALE_AVATARS[maleSeq % MALE_AVATARS.length];
+  };
 
   // Build a minimal project state for a topic — script + parsed voice spec +
   // chosen character. The editor's loader fills everything else from defaults.
@@ -140,6 +153,10 @@ export default function TriagePage() {
       voiceDelivery: {
         preset: r.settings ? "custom" : DEFAULT_DELIVERY.preset,
         settings: r.settings ?? DEFAULT_DELIVERY.settings,
+        // Pin the digest's assigned ElevenLabs voice so TTS reproduces it
+        // exactly, independent of the avatar→voice map. ("(...)" placeholders
+        // from un-designed voices are ignored.)
+        voiceId: r.voiceId && !r.voiceId.startsWith("(") ? r.voiceId : undefined,
         useV3: false,
         tags: r.tags,
         prosody: r.prosody,
@@ -171,7 +188,7 @@ export default function TriagePage() {
       let firstId: string | null = null;
       let maleSeq = 0;
       for (const r of selected) {
-        const avatarPath = avatarFor(r.gender, maleSeq);
+        const avatarPath = avatarFor(r, maleSeq);
         if (!(r.gender ?? "").toLowerCase().startsWith("f")) maleSeq++;
         const meta = createProject(r.title);
         if (!firstId) firstId = meta.id;
@@ -322,9 +339,9 @@ export default function TriagePage() {
                   </div>
                   {r.why && <p className="text-mini text-zinc-400 mt-1">{r.why}</p>}
                   <div className="flex items-center gap-2 flex-wrap mt-1.5">
-                    {r.persona && (
+                    {(r.character ?? r.persona) && (
                       <span className="text-micro px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300">
-                        {r.persona}{r.gender ? ` · ${r.gender[0].toUpperCase()}` : ""}
+                        {r.character ?? r.persona}{r.gender ? ` · ${r.gender[0].toUpperCase()}` : ""}
                       </span>
                     )}
                     {r.bestPlatform && <span className="text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">{r.bestPlatform}</span>}

@@ -6,7 +6,7 @@
 // and the verbatim spoken script. Engagement ranking is already provided by the
 // source (the score), so correct parsing alone yields the right order.
 
-import { parseVoiceSpec, type VoiceSettings } from "./voices";
+import { parseVoiceSpec, sanitizeVoiceSettings, type VoiceSettings } from "./voices";
 
 export interface ParsedTopic {
   id: string;
@@ -17,10 +17,12 @@ export interface ParsedTopic {
   bestPlatform?: string;
   postTiming?: string;
   // Voice design
+  character?: string; // full assigned character name, e.g. "Claire Donovan"
   persona?: string;
   gender?: string;
   voiceId?: string;
   voiceName?: string;
+  model?: string; // ElevenLabs tts model id from the digest, e.g. eleven_multilingual_v2
   settings?: VoiceSettings;
   tags?: string[];
   prosody?: string;
@@ -66,14 +68,43 @@ function parseBlock(rank: number, title: string, score: number, block: string): 
     postTiming = firstMatch(block, /POST TIMING:[ \t]*(.+)$/m);
   }
 
-  // Voice-design config sub-section (bounded so voice_description doesn't run
-  // on into the social block / script).
-  const configText = slice(block, "VOICE-DESIGN CONFIG", "── SOCIAL");
-  const spec = parseVoiceSpec(configText);
-  const persona = firstMatch(configText, /persona:[ \t]*([^\[\|\n]+)/i);
-  const gender = firstMatch(configText, /gender:[ \t]*([A-Za-z]+)/i);
-  const voiceId = firstMatch(configText, /voice_id:[ \t]*(.+)$/im);
-  const voiceName = firstMatch(configText, /voice_name:[ \t]*(.+)$/im);
+  // Voice sub-section. Two digest formats are supported: the legacy
+  // "── ELEVENLABS VOICE-DESIGN CONFIG ──" block and the current
+  // "── ELEVENLABS VOICE (assigned) ──" block. Both start with "ELEVENLABS
+  // VOICE", so slice from there to the social rule.
+  const configText = slice(block, "ELEVENLABS VOICE", "── SOCIAL");
+  const spec = parseVoiceSpec(configText); // legacy tags/prosody/description
+
+  // The current format's "── ELEVENLABS API CALL ──" block is the authoritative,
+  // ready-to-send request: its URL carries the voice_id and its JSON body the
+  // model + voice_settings + verbatim text. Prefer it when present.
+  const apiText = slice(block, "ELEVENLABS API CALL");
+  let apiBody: { model_id?: string; voice_settings?: Partial<VoiceSettings> } | undefined;
+  const bodyMatch = apiText.match(/\{[\s\S]*\}/);
+  if (bodyMatch) {
+    try { apiBody = JSON.parse(bodyMatch[0]); } catch { /* leave undefined */ }
+  }
+  const apiUrlVoiceId = firstMatch(apiText, /text-to-speech\/([A-Za-z0-9]+)/);
+
+  // Current format: "character: Claire Donovan (female)"; legacy: "persona: Dana".
+  const charMatch = configText.match(/character:[ \t]*([^()\n]+?)[ \t]*\(([^)]+)\)/i);
+  const character = charMatch ? charMatch[1].trim() : undefined;
+  const persona = firstMatch(configText, /^[ \t]*persona:[ \t]*([^\[\|\n]+)/im);
+  const gender =
+    (charMatch ? charMatch[2].trim() : undefined) ?? firstMatch(configText, /gender:[ \t]*([A-Za-z]+)/i);
+  const voiceId = firstMatch(configText, /voice_id:[ \t]*([A-Za-z0-9]+)/i) ?? apiUrlVoiceId;
+  const voiceName = firstMatch(configText, /voice_name:[ \t]*(.+)$/im) ?? character;
+  const model = apiBody?.model_id ?? firstMatch(configText, /tts_model:[ \t]*([A-Za-z0-9_]+)/i);
+
+  // Settings: prefer the API call body, then a "settings:" / "voice_settings:"
+  // JSON object in the config block, then whatever parseVoiceSpec found.
+  const settingsJson = (key: string): Partial<VoiceSettings> | undefined => {
+    const m = configText.match(new RegExp(`${key}[ \\t]*[:=][ \\t]*(\\{[\\s\\S]*?\\})`, "i"));
+    if (!m) return undefined;
+    try { return JSON.parse(m[1]); } catch { return undefined; }
+  };
+  const rawSettings = apiBody?.voice_settings ?? settingsJson("settings");
+  const settings = rawSettings ? sanitizeVoiceSettings(rawSettings) : spec.settings;
 
   // Social sub-section (between ── SOCIAL ── and the spoken script).
   const socialText = slice(block, "── SOCIAL", "SPOKEN SCRIPT");
@@ -90,6 +121,9 @@ function parseBlock(rank: number, title: string, score: number, block: string): 
   const sm = block.match(/SPOKEN SCRIPT[^\n]*:[ \t]*\n([\s\S]*)$/i);
   if (sm) {
     script = sm[1]
+      // drop the ready-to-send API call block, which now sits between the
+      // script and the trailing ═ rule in the current digest format
+      .replace(/\n[ \t]*──[ \t]*ELEVENLABS API CALL[\s\S]*$/im, "")
       .replace(/\n[═]{3,}[\s\S]*$/m, "") // drop trailing ═ rule + anything after
       .replace(/\n[ \t]*BATCH:[\s\S]*$/m, "")
       .trim();
@@ -103,11 +137,13 @@ function parseBlock(rank: number, title: string, score: number, block: string): 
     why,
     bestPlatform,
     postTiming,
+    character,
     persona,
     gender,
     voiceId,
     voiceName,
-    settings: spec.settings,
+    model,
+    settings,
     tags: spec.tags,
     prosody: spec.prosody,
     voiceDescription: spec.voiceDescription,

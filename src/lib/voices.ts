@@ -54,6 +54,11 @@ export const DELIVERY_PRESETS: Record<Exclude<DeliveryPreset, "custom">, VoiceSe
 export interface VoiceDelivery {
   preset: DeliveryPreset;
   settings: VoiceSettings; // the resolved settings actually sent to ElevenLabs
+  // A pinned ElevenLabs voice id that overrides the avatar→voice map for this
+  // project. Set by triage intake so a digest-assigned voice is reproduced
+  // exactly (1:1 with the digest's ready-to-send API call), regardless of which
+  // avatar face is shown. Empty/undefined falls back to AVATAR_VOICE_MAP.
+  voiceId?: string;
   useV3?: boolean; // opt into Eleven v3 expressive mode ([audio tags])
   // Populated by pasting a per-script voice spec (see parseVoiceSpec):
   tags?: string[]; // suggested audio tags — drives the v3 insert palette
