@@ -19,6 +19,8 @@ interface Props {
   onSelectImage: (index: number) => void;
   onImageTimingChange: (index: number, startTime: number, endTime: number) => void;
   onImageTrackChange: (index: number, track: number) => void;
+  onDeleteImage: (index: number) => void;
+  onAddTrack: () => void;
   intro: IntroOutroSegment | null;
   outro: IntroOutroSegment | null;
   expanded: boolean;
@@ -46,6 +48,8 @@ export const Timeline: React.FC<Props> = ({
   onSelectImage,
   onImageTimingChange,
   onImageTrackChange,
+  onDeleteImage,
+  onAddTrack,
   intro,
   outro,
   expanded,
@@ -128,6 +132,17 @@ export const Timeline: React.FC<Props> = ({
           Hide
         </button>
 
+        {/* Add an overlay layer by promoting the selected clip onto a new track */}
+        <button
+          onClick={onAddTrack}
+          disabled={selectedImageIndex == null}
+          title={selectedImageIndex == null ? "Select a clip, then add it to a new layer" : "Move the selected clip to a new overlay layer"}
+          className="text-xs text-zinc-400 hover:text-zinc-200 disabled:text-zinc-700 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          Track
+        </button>
+
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-micro text-zinc-400">Zoom</span>
           <input
@@ -193,6 +208,7 @@ export const Timeline: React.FC<Props> = ({
               onSelect={onSelectImage}
               onTimingChange={onImageTimingChange}
               onTrackChange={onImageTrackChange}
+              onDelete={onDeleteImage}
               trackCount={trackCount}
               rowHeight={TRACK_HEIGHT}
               addRowHeight={ADD_TRACK_HEIGHT}

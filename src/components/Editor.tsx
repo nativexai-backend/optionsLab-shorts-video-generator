@@ -7,6 +7,7 @@ import type { PlayerRef } from "@remotion/player";
 import { InputPanel } from "./InputPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Timeline } from "./Timeline";
+import { ClipInspector } from "./ClipInspector";
 import { RenderButton } from "./RenderButton";
 import { ThumbnailModal } from "./ThumbnailModal";
 import { LibraryModal } from "./LibraryModal";
@@ -241,12 +242,19 @@ export const Editor: React.FC = () => {
 
   // ── Re-analyze confirmation (destructive — needs a real dialog, not a toast) ──
   const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false);
+  const [showResyncConfirm, setShowResyncConfirm] = useState(false);
   useEffect(() => {
     if (!showReanalyzeConfirm) return;
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") setShowReanalyzeConfirm(false); };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [showReanalyzeConfirm]);
+  useEffect(() => {
+    if (!showResyncConfirm) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setShowResyncConfirm(false); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [showResyncConfirm]);
 
   // ── Undo/redo history ──
   const undoStack = useRef<HistorySnapshot[]>([]);
@@ -1144,9 +1152,57 @@ export const Editor: React.FC = () => {
     []
   );
 
+  // Adjust an overlay clip's box within the frame (inspector numeric fields /
+  // future drag-in-preview handles). Values are normalized 0..1.
+  const handleImageTransformChange = useCallback(
+    (index: number, transform: ClipTransform) => {
+      setImages((prev) =>
+        prev.map((img, i) => (i === index ? { ...img, transform } : img))
+      );
+    },
+    []
+  );
+
+  // Promote the selected clip onto a fresh overlay layer (the discoverable
+  // counterpart to dragging a clip onto the "+ new layer" row).
+  const handleAddTrack = useCallback(() => {
+    if (selectedImageIndex == null) return;
+    const maxTrack = Math.max(0, ...images.map((im) => im.track ?? 0));
+    handleImageTrackChange(selectedImageIndex, maxTrack + 1);
+  }, [selectedImageIndex, images, handleImageTrackChange]);
+
   const handleSelectImage = useCallback((index: number) => {
     setSelectedImageIndex(index);
   }, []);
+
+  // Keyboard editing for the selected timeline clip: Delete removes it, arrows
+  // nudge its timing (preserving duration; Shift = larger step). Guarded so it
+  // never fires while typing in a form control.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (selectedImageIndex == null || !images[selectedImageIndex]) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((e.target as HTMLElement)?.isContentEditable) return;
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        handleRemoveImage(selectedImageIndex);
+        setSelectedImageIndex(null);
+        return;
+      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const step = (e.shiftKey ? 0.5 : 0.1) * (e.key === "ArrowRight" ? 1 : -1);
+        const img = images[selectedImageIndex];
+        const dur = img.endTime - img.startTime;
+        const start = Math.max(0, Math.min(img.startTime + step, durationInSeconds - dur));
+        handleImageTimingBatchChange(selectedImageIndex, start, start + dur);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedImageIndex, images, durationInSeconds, handleRemoveImage, handleImageTimingBatchChange]);
 
   const handleToggleTimeline = useCallback(() => {
     setTimelineExpanded((prev) => !prev);
@@ -1216,15 +1272,18 @@ export const Editor: React.FC = () => {
 
       showToast(`${avatarName} voice generated — transcribing...`, "success");
 
-      // Auto-transcribe the generated audio
-      setIsTranscribing(true);
-      try {
-        const formData = new FormData();
-        formData.append("audio", file);
-        if (currentProjectId) formData.append("projectId", currentProjectId);
-        const transcribeRes = await fetch("/api/transcribe", { method: "POST", body: formData });
-        const transcribeText = await transcribeRes.text();
-        if (transcribeRes.ok) {
+      // Auto-transcribe the generated audio. On failure the take still exists
+      // (voiceover plays) but captions would be silently empty — so surface a
+      // toast with a one-click Retry instead of swallowing the error.
+      const runTranscribe = async () => {
+        setIsTranscribing(true);
+        try {
+          const formData = new FormData();
+          formData.append("audio", file);
+          if (currentProjectId) formData.append("projectId", currentProjectId);
+          const transcribeRes = await fetch("/api/transcribe", { method: "POST", body: formData });
+          const transcribeText = await transcribeRes.text();
+          if (!transcribeRes.ok) throw new Error(transcribeText || `HTTP ${transcribeRes.status}`);
           const { words } = JSON.parse(transcribeText);
           const cleaned = postProcessTranscript(words);
           // Attach transcript to the take
@@ -1234,12 +1293,17 @@ export const Editor: React.FC = () => {
             setTranscript(cleaned);
           }
           showToast(`${avatarName} — ${cleaned.length} words transcribed`, "success");
+        } catch {
+          showToast(
+            "Captions failed — the voiceover is fine, but transcription didn't complete.",
+            "error",
+            { label: "Retry", onClick: () => { setToast(null); runTranscribe(); } }
+          );
+        } finally {
+          setIsTranscribing(false);
         }
-      } catch {
-        // Non-fatal: take exists without transcript
-      } finally {
-        setIsTranscribing(false);
-      }
+      };
+      await runTranscribe();
     } catch (err) {
       showToast(
         `TTS failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1729,7 +1793,7 @@ export const Editor: React.FC = () => {
     [sceneSuggestions, getAllSuggestionTimings, durationInSeconds, persistFile, currentProjectId, showToast]
   );
 
-  const handleApplyAllSuggestions = useCallback(() => {
+  const runApplyAllSuggestions = useCallback(() => {
     // Re-pace first: re-split any over-long beats at the current pace using the
     // live transcript/duration. Prefer the original beats (rawSuggestionsRef);
     // fall back to the current shot list (e.g. after a reload) — long cards
@@ -1790,6 +1854,16 @@ export const Editor: React.FC = () => {
       "success"
     );
   }, [images, imageFiles, sceneSuggestions, visualPace, paceBeats, transcript, scriptText, durationInSeconds, persistFile, currentProjectId, showToast]);
+
+  // Re-sync rebuilds the timeline slots and reshuffles already-assigned images
+  // onto their best-matching new slots — a heuristic that can move or orphan a
+  // hand-placed image. Confirm first when there's assignment to lose; the
+  // additive "Add All" case (no images yet) runs straight through.
+  const assignedImageCount = useMemo(() => images.filter((im) => im.src).length, [images]);
+  const handleApplyAllSuggestions = useCallback(() => {
+    if (assignedImageCount > 0) setShowResyncConfirm(true);
+    else runApplyAllSuggestions();
+  }, [assignedImageCount, runApplyAllSuggestions]);
 
   // ── Example project (lets a new user see a working composition in one click) ──
 
@@ -1976,6 +2050,8 @@ export const Editor: React.FC = () => {
           onAnalysisProviderChange={setAnalysisProvider}
           visualPace={visualPace}
           onVisualPaceChange={handleVisualPaceChange}
+          onOpenChartModal={() => setShowChartModal(true)}
+          onOpenLibrary={() => setShowLibraryModal(true)}
         />
       </aside>
       <main aria-label="Video preview" className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -2105,6 +2181,21 @@ export const Editor: React.FC = () => {
         </Suspense>
         </ErrorBoundary>
         </div>
+        {selectedImageIndex != null && images[selectedImageIndex] && (
+          <ClipInspector
+            index={selectedImageIndex}
+            image={images[selectedImageIndex]}
+            scene={sceneSuggestions[selectedImageIndex]}
+            durationInSeconds={durationInSeconds}
+            onClose={() => setSelectedImageIndex(null)}
+            onTimingChange={handleImageTimingBatchChange}
+            onAnimationChange={handleImageAnimationChange}
+            onTrackChange={handleImageTrackChange}
+            onTransformChange={handleImageTransformChange}
+            onReplace={handleReplaceImage}
+            onDelete={handleRemoveImage}
+          />
+        )}
         <Timeline
           playerRef={playerRef}
           audioFile={audioFile}
@@ -2114,6 +2205,8 @@ export const Editor: React.FC = () => {
           onSelectImage={handleSelectImage}
           onImageTimingChange={handleImageTimingBatchChange}
           onImageTrackChange={handleImageTrackChange}
+          onDeleteImage={handleRemoveImage}
+          onAddTrack={handleAddTrack}
           intro={intro}
           outro={outro}
           expanded={timelineExpanded}
@@ -2183,6 +2276,32 @@ export const Editor: React.FC = () => {
                 className="px-4 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-500 rounded-md text-white transition-colors"
               >
                 Reset & Re-analyze
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Re-sync confirmation dialog */}
+      {showResyncConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowResyncConfirm(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-96 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-medium text-zinc-200 mb-2">Re-sync timeline?</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed mb-4">
+              You&apos;ve assigned {assignedImageCount} image{assignedImageCount === 1 ? "" : "s"}. Re-syncing rebuilds the timeline slots and moves each image onto its best-matching new slot — some may shift position or end up unassigned. You can undo this with ⌘Z.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowResyncConfirm(false)}
+                className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowResyncConfirm(false); runApplyAllSuggestions(); }}
+                className="px-4 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 rounded-md text-white transition-colors"
+              >
+                Re-sync
               </button>
             </div>
           </div>

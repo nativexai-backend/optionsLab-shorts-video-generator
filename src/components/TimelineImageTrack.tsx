@@ -16,6 +16,7 @@ interface Props {
   onSelect: (index: number) => void;
   onTimingChange: (index: number, startTime: number, endTime: number) => void;
   onTrackChange: (index: number, track: number) => void;
+  onDelete: (index: number) => void;
   trackCount: number;
   rowHeight: number;
   addRowHeight: number;
@@ -65,11 +66,24 @@ export const TimelineImageTrack: React.FC<Props> = ({
   onSelect,
   onTimingChange,
   onTrackChange,
+  onDelete,
   trackCount,
   rowHeight,
   addRowHeight,
 }) => {
   const [dragState, setDragState] = useState<DragState | null>(null);
+  // Track image sources that failed to load so we can show a distinct
+  // "missing file" state (e.g. zero-byte placeholders from a partial restore)
+  // instead of a silently-empty block. Keyed by src so it survives reindexing.
+  const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
+  const markFailed = useCallback((src: string) => {
+    setFailedSrcs((prev) => {
+      if (prev.has(src)) return prev;
+      const next = new Set(prev);
+      next.add(src);
+      return next;
+    });
+  }, []);
   const [previewImages, setPreviewImages] = useState<ImageSegment[] | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
   const [previewTrack, setPreviewTrack] = useState<number | null>(null); // row the dragged clip hovers
@@ -260,7 +274,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
         }`}
         style={{ top: trackCount * rowHeight, height: addRowHeight }}
       >
-        {previewTrack === trackCount ? "Drop to create a new layer" : isDragging ? "drag here for a new layer" : ""}
+        {previewTrack === trackCount ? "Drop to create a new layer" : isDragging ? "drag here for a new layer" : "+ drag a clip here for a new overlay layer"}
       </div>
 
       {displayImages.map((img, i) => {
@@ -271,38 +285,92 @@ export const TimelineImageTrack: React.FC<Props> = ({
         const thisDragging = dragState?.index === i && dragState.mode === "move";
         const tr = thisDragging && previewTrack != null ? previewTrack : (img.track ?? 0);
 
+        const isChart = !!img.chart;
+        const hasImage = !!img.src && !failedSrcs.has(img.src);
+        const isMissing = !!img.src && failedSrcs.has(img.src);
+        const isEmpty = !img.src && !isChart;
+        const wideEnough = width >= 44; // room for the delete affordance + label
+
         return (
           <div
             key={i}
-            className={`absolute rounded-md cursor-grab active:cursor-grabbing select-none flex items-center justify-center ${
-              isSelected ? "ring-2 ring-white shadow-[0_0_8px_rgba(255,255,255,0.3)] z-10" : ""
+            className={`group absolute rounded-md cursor-grab active:cursor-grabbing select-none overflow-hidden ${
+              isSelected ? "ring-2 ring-white shadow-[0_0_8px_rgba(255,255,255,0.3)] z-10" : "ring-1 ring-black/20"
             }`}
             style={{
               left,
               top: tr * rowHeight + 2,
               height: rowHeight - 4,
               width: Math.max(width, 4),
-              backgroundColor: color,
-              opacity: thisDragging ? 0.95 : 0.85,
+              backgroundColor: isChart ? "#0b1220" : color,
+              opacity: thisDragging ? 0.95 : 1,
             }}
+            title={isMissing ? "Image file missing — re-add it" : isEmpty ? `Scene ${i + 1} — no image yet` : undefined}
             onClick={(e) => {
               e.stopPropagation();
               onSelect(i);
             }}
             onPointerDown={(e) => handlePointerDown(i, "move", e)}
           >
+            {/* Thumbnail fill */}
+            {hasImage && (
+              <img
+                src={img.src}
+                alt=""
+                draggable={false}
+                onError={() => markFailed(img.src)}
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              />
+            )}
+            {/* Chart clip — distinct dark fill + glyph + ticker */}
+            {isChart && (
+              <div className="absolute inset-0 flex items-center justify-center gap-1 pointer-events-none" style={{ color }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18" /><path d="M7 14l3-3 3 3 4-5" /></svg>
+                {wideEnough && <span className="text-micro font-bold truncate max-w-[60px]">{img.chart?.ticker}</span>}
+              </div>
+            )}
+            {/* Missing file — distinct warning state */}
+            {isMissing && (
+              <div className="absolute inset-0 flex items-center justify-center gap-1 bg-rose-950/70 text-rose-300 pointer-events-none">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15l-5-5L5 21" /><path d="M3 3l18 18" /><circle cx="9" cy="9" r="1.5" /></svg>
+                {wideEnough && <span className="text-micro font-medium">missing</span>}
+              </div>
+            )}
+            {/* Empty slot — dashed, muted */}
+            {isEmpty && <div className="absolute inset-0 border border-dashed border-white/30 rounded-md pointer-events-none" />}
+
+            {/* Scrim so the index/delete stay legible over any thumbnail */}
+            {(hasImage) && <div className="absolute inset-0 bg-gradient-to-r from-black/45 via-transparent to-black/30 pointer-events-none" />}
+
             {/* Left resize handle */}
             <div
-              className="absolute left-0 top-0 bottom-0 w-2.5 cursor-col-resize bg-white/10 hover:bg-white/30 rounded-l-md"
+              className="absolute left-0 top-0 bottom-0 w-2.5 cursor-col-resize bg-white/10 hover:bg-white/40 z-10"
               onPointerDown={(e) => handlePointerDown(i, "resize-left", e)}
             />
-            {/* Label */}
-            <span className="text-micro text-white font-bold drop-shadow pointer-events-none truncate px-2">
+            {/* Index badge — color-coded so identity survives over thumbnails */}
+            <span
+              className="absolute left-1.5 top-1 text-micro text-white font-bold leading-none px-1 py-0.5 rounded pointer-events-none"
+              style={{ backgroundColor: isChart || hasImage || isMissing ? "rgba(0,0,0,0.55)" : "transparent" }}
+            >
               {i + 1}
             </span>
+            {/* Inline delete — appears on hover, no trip to the left panel */}
+            <button
+              type="button"
+              aria-label={`Delete clip ${i + 1}`}
+              title="Delete clip"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(i);
+              }}
+              className="absolute right-1 top-1 z-20 hidden group-hover:flex items-center justify-center w-4 h-4 rounded bg-black/60 hover:bg-rose-600 text-white"
+            >
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
             {/* Right resize handle */}
             <div
-              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize bg-white/10 hover:bg-white/30 rounded-r-md"
+              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize bg-white/10 hover:bg-white/40 z-10"
               onPointerDown={(e) => handlePointerDown(i, "resize-right", e)}
             />
           </div>
