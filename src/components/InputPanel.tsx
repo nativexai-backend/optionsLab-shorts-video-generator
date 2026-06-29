@@ -109,6 +109,8 @@ interface Props {
   onAnalysisProviderChange: (provider: "groq" | "claude" | "rules" | "auto") => void;
   visualPace: PaceName;
   onVisualPaceChange: (pace: PaceName) => void;
+  onOpenChartModal?: () => void;
+  onOpenLibrary?: () => void;
 }
 
 type IntroType = "none" | "image" | "animation";
@@ -506,6 +508,8 @@ const InputPanelInner: React.FC<Props> = ({
   onAnalysisProviderChange,
   visualPace,
   onVisualPaceChange,
+  onOpenChartModal,
+  onOpenLibrary,
 }) => {
   const transcriptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -655,7 +659,7 @@ const InputPanelInner: React.FC<Props> = ({
     ? `${assignedImageCount}/${images.length} slots filled`
     : `${images.length} image${images.length === 1 ? "" : "s"}`;
 
-  const captionsStatus = transcript.length > 0 ? `${transcript.length} words` : "";
+  const captionsStatus = transcript.length > 0 ? `Auto · ${transcript.length} words` : "From voiceover";
 
   const brandingStatus = [
     introType !== "none" ? "Intro" : null,
@@ -1007,6 +1011,28 @@ const InputPanelInner: React.FC<Props> = ({
         onToggle={() => onToggleSection("visuals")}
       >
         <div className="space-y-2.5">
+          {/* In-context entry points — also reachable from the top toolbar */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onOpenChartModal?.()}
+              className="flex-1 flex items-center justify-center gap-1.5 text-micro px-2 py-1.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors font-medium"
+              title="Add an animated chart as a visual"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+              Add chart
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenLibrary?.()}
+              className="flex-1 flex items-center justify-center gap-1.5 text-micro px-2 py-1.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors font-medium"
+              title="Browse the reusable image library"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+              Browse library
+            </button>
+          </div>
+
           {/* Shot list — AI scene suggestions from the script */}
           <div className="space-y-1.5 bg-zinc-900 rounded-lg p-2.5 border border-zinc-800">
             <div className="flex items-center gap-1.5">
@@ -1174,15 +1200,16 @@ const InputPanelInner: React.FC<Props> = ({
       <Section
         id="captions"
         num={3}
-        title="Captions & Style"
+        title="Captions & Style (auto)"
         status={captionsStatus}
         done={transcript.length > 0}
         open={openSections.has("captions")}
         onToggle={() => onToggleSection("captions")}
       >
         <div className="space-y-2">
+          <p className="text-mini text-zinc-500">Captions are generated automatically from your voiceover — review &amp; style them here.</p>
           {transcript.length === 0 && (
-            <p className="text-mini text-zinc-500">Captions appear automatically after you generate a voiceover. You can re-transcribe or fine-tune them here.</p>
+            <p className="text-mini text-zinc-600">No captions yet — they appear automatically after you generate a voiceover. You can re-transcribe or fine-tune them here.</p>
           )}
           <Button
             variant="primary"
@@ -1212,11 +1239,8 @@ const InputPanelInner: React.FC<Props> = ({
           )}
 
           {/* Manual JSON input — collapsed behind a toggle */}
-          <details className="group">
-            <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-300 transition-colors">
-              Manual JSON input
-            </summary>
-            <div className="mt-2 space-y-1.5">
+          <Disclosure title="Manual JSON input">
+            <div className="space-y-1.5">
               <textarea
                 ref={transcriptRef}
                 className="w-full h-28 bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-500 resize-y"
@@ -1257,15 +1281,11 @@ const InputPanelInner: React.FC<Props> = ({
                 />
               </div>
             </div>
-          </details>
+          </Disclosure>
 
           {/* Caption style controls — set-once, collapsed to keep the editor front */}
-          <details className="group border-t border-zinc-800 pt-2 mt-2">
-            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-mini text-zinc-400 hover:text-zinc-200 select-none">
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
-              Caption styling — font, position, colors
-            </summary>
-            <div className="space-y-3 mt-2">
+          <Disclosure title="Caption styling — font, position, colors">
+            <div className="space-y-3">
             <SliderControl
               label="Font Size"
               value={style.fontSize}
@@ -1325,7 +1345,7 @@ const InputPanelInner: React.FC<Props> = ({
               />
             </div>
             </div>
-          </details>
+          </Disclosure>
         </div>
       </Section>
 
@@ -1343,12 +1363,7 @@ const InputPanelInner: React.FC<Props> = ({
       >
         <div className="space-y-3">
           {/* Avatar overlay placement — set-once brand defaults, collapsed */}
-          <details className="group bg-zinc-900 rounded-lg border border-zinc-800">
-            <summary className="flex items-center gap-1.5 cursor-pointer list-none text-micro uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
-              Avatar Overlay
-            </summary>
-            <div className="space-y-2 px-2.5 pb-2.5">
+          <Disclosure title="Avatar Overlay">
             {!avatarPath && (
               <p className="text-micro text-zinc-500">Select a presenter in step 1 to see the avatar overlay.</p>
             )}
@@ -1402,8 +1417,7 @@ const InputPanelInner: React.FC<Props> = ({
                 ))}
               </select>
             </div>
-            </div>
-          </details>
+          </Disclosure>
 
           {/* Intro */}
           <div className="space-y-2">
@@ -1727,6 +1741,39 @@ function Section({
   );
 }
 
+/* ---- Disclosure ----
+   Standardized collapsible (styled <details>) so the panel's ad-hoc disclosures
+   share one look: same chevron, summary spacing and hover. Distinct from the
+   numbered top-level `Section` component, which drives the 4 pipeline steps.
+   `card` (default) wraps it in the zinc card chrome; pass card={false} when it
+   already lives inside a card to avoid a double border. */
+function Disclosure({
+  title,
+  defaultOpen = false,
+  right,
+  card = true,
+  children,
+}: {
+  title: React.ReactNode;
+  defaultOpen?: boolean;
+  right?: React.ReactNode;
+  card?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className={`group ${card ? "bg-zinc-900 rounded-lg border border-zinc-800" : ""}`}>
+      <summary className={`flex items-center gap-1.5 cursor-pointer list-none text-micro uppercase tracking-wider text-zinc-400 font-medium select-none hover:text-zinc-200 ${card ? "p-2.5" : ""}`}>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
+        {title}
+        {right != null && <span className="ml-auto normal-case">{right}</span>}
+      </summary>
+      <div className={`space-y-2 ${card ? "px-2.5 pb-2.5" : "mt-2"}`}>
+        {children}
+      </div>
+    </details>
+  );
+}
+
 /* ---- Shared helpers ---- */
 
 function ImageDropZone({ onImagesUpload, children }: { onImagesUpload: (files: File[]) => void; children: React.ReactNode }) {
@@ -1961,38 +2008,9 @@ function DeliveryControl({
 
   return (
     <div className="space-y-1.5 bg-zinc-900 rounded-lg border border-zinc-800 p-2.5">
-      <div className="flex items-center justify-between">
-        <label className="text-xs text-zinc-300 font-medium">Delivery</label>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={openSpec} className="text-micro text-violet-400 hover:text-violet-300">
-            {showSpec ? "Close" : delivery.specRaw ? "Edit spec" : "Paste spec"}
-          </button>
-          <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-micro text-zinc-500 hover:text-zinc-300">
-            {advanced ? "Hide fine-tune" : "Fine-tune"}
-          </button>
-        </div>
-      </div>
+      <label className="text-xs text-zinc-300 font-medium block">Delivery</label>
 
-      {/* Paste-a-voice-spec: parse the blob once per script → settings + tags + notes */}
-      {showSpec && (
-        <div className="space-y-1.5 rounded-md border border-violet-500/30 bg-zinc-950/40 p-2">
-          <textarea
-            value={specText}
-            onChange={(e) => setSpecText(e.target.value)}
-            rows={5}
-            placeholder={'Paste the voice spec, e.g.\nvoice_settings: {"stability": 0.5, "similarity_boost": 0.78, "style": 0.25, "use_speaker_boost": true}\nsuggested_audio_tags: conversational, brisk, warm, confident\nprosody: ...\nvoice_description: ...'}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-micro text-zinc-300 placeholder:text-zinc-600 resize-y focus-visible:ring-2 focus-visible:ring-violet-500 font-mono"
-          />
-          <div className="flex items-center gap-2">
-            <Chip onClick={applySpec} className="px-2.5 py-1 text-micro rounded bg-violet-600 text-white hover:bg-violet-500">Apply spec</Chip>
-            <span className="text-micro text-zinc-500">Reads voice_settings + tags; keeps prosody/description as notes.</span>
-          </div>
-        </div>
-      )}
-      {specMsg && (
-        <p className={`text-micro ${specMsg.ok ? "text-green-400" : "text-amber-400"}`}>{specMsg.text}</p>
-      )}
-
+      {/* Preset picker — always visible at rest */}
       <div className="flex gap-1">
         {DELIVERY_OPTIONS.map((o) => (
           <Chip
@@ -2016,8 +2034,39 @@ function DeliveryControl({
             {delivery.tags?.length ? ` · ${delivery.tags.length} tags` : ""}
           </p>
         ) : (
-          <p className="text-micro text-zinc-500">Custom delivery{!advanced ? " — open Fine-tune to adjust." : ""}</p>
+          <p className="text-micro text-zinc-500">Custom delivery{!advanced ? " — open Voice tuning to adjust." : ""}</p>
         )
+      )}
+
+      {/* Advanced surfaces — collapsed by default so step ① stays compact */}
+      <Disclosure title="Voice tuning" card={false}>
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={openSpec} className="text-micro text-violet-400 hover:text-violet-300">
+            {showSpec ? "Close" : delivery.specRaw ? "Edit spec" : "Paste spec"}
+          </button>
+          <button type="button" onClick={() => setAdvanced((a) => !a)} className="text-micro text-zinc-500 hover:text-zinc-300">
+            {advanced ? "Hide fine-tune" : "Fine-tune"}
+          </button>
+        </div>
+
+      {/* Paste-a-voice-spec: parse the blob once per script → settings + tags + notes */}
+      {showSpec && (
+        <div className="space-y-1.5 rounded-md border border-violet-500/30 bg-zinc-950/40 p-2">
+          <textarea
+            value={specText}
+            onChange={(e) => setSpecText(e.target.value)}
+            rows={5}
+            placeholder={'Paste the voice spec, e.g.\nvoice_settings: {"stability": 0.5, "similarity_boost": 0.78, "style": 0.25, "use_speaker_boost": true}\nsuggested_audio_tags: conversational, brisk, warm, confident\nprosody: ...\nvoice_description: ...'}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-micro text-zinc-300 placeholder:text-zinc-600 resize-y focus-visible:ring-2 focus-visible:ring-violet-500 font-mono"
+          />
+          <div className="flex items-center gap-2">
+            <Chip onClick={applySpec} className="px-2.5 py-1 text-micro rounded bg-violet-600 text-white hover:bg-violet-500">Apply spec</Chip>
+            <span className="text-micro text-zinc-500">Reads voice_settings + tags; keeps prosody/description as notes.</span>
+          </div>
+        </div>
+      )}
+      {specMsg && (
+        <p className={`text-micro ${specMsg.ok ? "text-green-400" : "text-amber-400"}`}>{specMsg.text}</p>
       )}
       {advanced && (
         <div className="space-y-1.5 pt-1">
@@ -2101,6 +2150,7 @@ function DeliveryControl({
           </>
         )}
       </div>
+      </Disclosure>
     </div>
   );
 }
@@ -2120,13 +2170,11 @@ function PostDetailsCard({ meta }: { meta: TopicMeta }) {
     </div>
   );
   return (
-    <details open className="group bg-zinc-900 rounded-lg border border-zinc-800">
-      <summary className="flex items-center gap-1.5 cursor-pointer list-none text-micro uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
-        Post details
-        {meta.score != null && <span className="ml-auto text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-300 tabular-nums normal-case">{meta.score}</span>}
-      </summary>
-      <div className="space-y-2 px-2.5 pb-2.5">
+    <Disclosure
+      title="Post details"
+      defaultOpen
+      right={meta.score != null ? <span className="text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-300 tabular-nums">{meta.score}</span> : undefined}
+    >
         {t && (
           <div className="flex items-center gap-2 text-mini">
             <span className="text-zinc-500">Post</span>
@@ -2163,8 +2211,7 @@ function PostDetailsCard({ meta }: { meta: TopicMeta }) {
             </div>
           </div>
         )}
-      </div>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -2204,12 +2251,8 @@ function AttachPostDetails({ projectName, onAttach }: { projectName: string; onA
     setText("");
   };
   return (
-    <details className="group bg-zinc-900 rounded-lg border border-zinc-800">
-      <summary className="flex items-center gap-1.5 cursor-pointer list-none text-micro uppercase tracking-wider text-zinc-400 font-medium p-2.5 select-none hover:text-zinc-200">
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-90"><polyline points="9 18 15 12 9 6" /></svg>
-        Add post details
-      </summary>
-      <div className="space-y-1.5 px-2.5 pb-2.5">
+    <Disclosure title="Add post details">
+      <div className="space-y-1.5">
         <p className="text-micro text-zinc-500">Paste the digest (or just this topic&apos;s block) to attach its thumbnail, description, hashtags, captions &amp; keywords. Matched to this project by title.</p>
         <textarea
           value={text}
@@ -2223,7 +2266,7 @@ function AttachPostDetails({ projectName, onAttach }: { projectName: string; onA
           {msg && <span className={`text-micro ${msg.ok ? "text-emerald-400" : "text-amber-400"}`}>{msg.text}</span>}
         </div>
       </div>
-    </details>
+    </Disclosure>
   );
 }
 
