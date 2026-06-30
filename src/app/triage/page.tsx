@@ -284,7 +284,7 @@ export default function TriagePage() {
               onClick={pickWithClaude}
               className="px-3 py-1.5 text-xs rounded bg-violet-600 text-white hover:bg-violet-500"
             >
-              {picking ? "Picking…" : `Pick ${TARGET_PICKS} (Claude)`}
+              {picking ? "Picking…" : `Pick ${TARGET_PICKS} (AI)`}
             </Chip>
           )}
           {rows.length > 0 && (
@@ -302,7 +302,8 @@ export default function TriagePage() {
         {pickMethod && (
           <div className="mb-4 text-mini">
             {pickMethod === "claude" && <span className="text-violet-300">Claude picked {TARGET_PICKS} — balancing engagement + 3-day novelty.</span>}
-            {pickMethod === "score" && <span className="text-zinc-400">Picked by engagement score (no Anthropic key, or model fell back).</span>}
+            {pickMethod === "groq" && <span className="text-violet-300">Groq picked {TARGET_PICKS} — balancing engagement + 3-day novelty.</span>}
+            {pickMethod === "score" && <span className="text-zinc-400">Picked by engagement score (no Groq/Anthropic key, or model fell back).</span>}
             {pickMethod === "error" && <span className="text-amber-400">Selection failed — left your manual picks as-is.</span>}
             {skipped.length > 0 && (
               <ul className="mt-1 space-y-0.5">
