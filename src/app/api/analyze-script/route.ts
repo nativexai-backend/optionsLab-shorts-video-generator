@@ -35,10 +35,16 @@ Every scene's visual must depict EXACTLY what its own script segment is about �
 CRITICAL — EXACT CONTEXT:
 Extract the EXACT financial context from the script: which company, which person, direction up or down (green up / red down), which sector. "Tesla stock surged" means a green upward chart and Tesla-specific imagery, never a generic flat chart. Name real entities explicitly — these prompts also tag a reusable asset library ("Elon Musk portrait", "Tesla logo", "green uptrend chart"), so specific, consistent naming matters.
 
+CRITICAL — COMMODITIES (OIL):
+When a segment is about oil, crude, petroleum, OPEC, gasoline/diesel, refineries, or energy supply, DO NOT use a chart. Depict PHYSICAL OIL BARRELS in a real industrial scene, and VARY the location, action and style every time: barrels stacked on pallets in a sunlit warehouse, a forklift moving drums across a shipping yard, barrels lined along a dock with tankers behind, drums on a conveyor inside a refinery, a worker rolling or loading a barrel onto a truck, an aerial grid of barrels in a storage yard, a single barrel in sharp focus among many. Use category "b-roll", photorealistic industrial editorial photography, bright natural daylight, shallow depth of field. (Other commodities follow the same idea with their own physical object — gold bars, copper coils, wheat sacks — never a chart.)
+
+CRITICAL — COUNTRIES / GEOPOLITICS:
+When a segment names one or more countries, nations, or geopolitical actors (USA, China, Iran, Russia, Israel, Saudi Arabia, Ukraine, the EU, etc.), capture them through their NATIONAL FLAGS in an evocative high-profile setting — never a plain map or a flat flag graphic. Always name the specific country's flag (and show BOTH flags when two nations are in dialogue or conflict). VARY THE SETTING EVERY TIME and be creative: an ornate ceremonial dialogue chamber with the flags flanking a high-backed throne on a grand theater stage with honor guards in dress uniform and dignitaries seated in the foreground; a grand parliamentary debate chamber with rows of delegates and the flag behind the podium; an international summit round-table with flags lined along the wall; a UN-style council chamber with the flag at the speaker's rostrum; or — for tech/innovation/AI stories — a sleek high-tech command room or research lab with the national flag on the wall and glowing screens. Use category "b-roll". These geopolitical/ceremonial scenes MAY be more dramatic and moody than the house bright style — cinematic spotlighting, deep shadows and rich color are welcome here. Keep flags accurate, keep the lower third uncluttered, and still bake in NO text or numbers.
+
 CATEGORY RECIPES (subject-first; one example each):
 - person — a specific person (CEO, analyst, public figure). Recipe: full name + title, setting, pose/expression, then house style. Example: "Elon Musk, Tesla CEO, speaking at a daytime press event, confident expression, three-quarter portrait framed in upper two-thirds, bright modern venue with natural light, editorial press photography, shallow depth of field 85mm look, clean uncluttered lower third, no text overlays, vertical 9:16 format"
 - logo — the brand shown in the REAL WORLD, photographed — never a floating emblem or a glowing icon on a wall. Recipe: company signage in a real location (headquarters facade, office tower, storefront, campus entrance), camera angle, time of day. Example: "Tesla logo signage on glass headquarters facade on a clear sunny day, low-angle architectural photography, blue sky and cloud reflections in glass, editorial press photo style, clean plaza in lower third, no text overlays, vertical 9:16 format"
-- chart — stock chart or data visualization. Recipe: trend direction + color FIRST, then where it's displayed. Example: "Stock market chart with green candlesticks rising sharply, displayed on a large wall screen in a bright modern trading office, natural daylight from floor-to-ceiling windows, clean minimal dashboard, photographed at a slight angle, softly blurred office in lower third, no axis numbers, no price labels, no text overlays, vertical 9:16 format"
+- chart — market action shown as a CANDID HUMAN SCENE, real people working at a multi-monitor trading desk (never a sterile chart-on-a-wall graphic). The candlestick trend is visible on the screens; trend color comes from those screens (green up / red down). VARY THE PEOPLE AND SETTING EVERY TIME — change the number, gender, age and wardrobe of the people, the monitor setup, and the office (open-plan loft, fintech startup, glass trading room, home battlestation, co-working space). Recipe: real people + what they're doing + the multi-monitor setup with the candlestick trend on screen + varied bright setting + candid lifestyle camera feel. Example: "two young traders at a six-monitor desk, one standing and pointing at the screens while the other types, stock charts with green candlesticks rising on the monitors, bright modern open-plan trading loft with an industrial ceiling, exposed staircase and potted plants, warm natural daylight from large windows, candid side-angle lifestyle photography, shallow depth of field, uncluttered lower third, no axis numbers, no price labels, no text overlays, vertical 9:16 format"
 - product — physical product, app, or service visual. Recipe: product name, hero angle, surface, lighting. Example: "iPhone 16 Pro, hero product shot at a slight angle on a clean white desk by a window, soft natural daylight, subtle true shadows, premium tech editorial photography, shallow depth of field, smooth uncluttered surface in lower third, no labels, no text overlays, vertical 9:16 format"
 - b-roll — contextual atmosphere (office, skyline, street, factory). Recipe: specific scene, time of day, camera feel. Example: "Modern financial district street on a clear morning, glass towers and professionals walking, bright natural light, candid editorial photography, shallow depth of field, clean pavement in lower third, no text overlays, vertical 9:16 format"
 - text-overlay — use SPARINGLY (captions already carry the words); depict a physical metaphor for the stat or moment instead, with zero glyphs or numbers. Example: "Hourglass with sand running low on a bright desk by a window, soft morning light, blurred modern office in background, macro photography shallow depth of field, clean surface in lower third, no text overlays, vertical 9:16 format"
@@ -74,7 +80,7 @@ Return ONLY valid JSON (no markdown fences) in this exact format:
 
 wordRange is [startWordIndex, endWordIndex] (0-based, inclusive) covering which words in the script this scene maps to. Scenes must cover the entire script without gaps or overlaps.
 
-FINAL CHECK for every imagePrompt: subject named first and searchable; reads as a PHOTOGRAPH of one real scene (except chart graphics); BRIGHT natural light stated; contains NO digits, amounts, dates, or quantities; no glow-behind-logo, no split-screen; correct trend color from in-scene screens; upper-two-thirds composition with a calm uncluttered lower third stated; ends with "no text overlays, vertical 9:16 format".`;
+FINAL CHECK for every imagePrompt: subject named first and searchable; reads as a PHOTOGRAPH of one real scene (chart scenes show real people at a trading desk; oil scenes show physical barrels; country scenes show national flags in a high-profile chamber/summit/lab — never a bare graphic); BRIGHT natural light stated (except geopolitical/ceremonial scenes, which may be cinematic and moody); contains NO digits, amounts, dates, or quantities; no glow-behind-logo, no split-screen; correct trend color from in-scene screens; upper-two-thirds composition with a calm uncluttered lower third stated; ends with "no text overlays, vertical 9:16 format".`;
 
 // ── Parse LLM response into SceneSuggestion[] ──
 
@@ -213,6 +219,22 @@ const RULES: RuleMatch[] = [
   },
   {
     pattern:
+      /\b(?:oil|crude|petroleum|OPEC|barrel|barrels|WTI|Brent|gasoline|diesel|refinery|refineries)\b/gi,
+    category: "b-roll",
+    animation: "panLeft",
+    descriptionTemplate: (m) => `Oil barrels representing ${m} context`,
+    priority: "recommended",
+  },
+  {
+    pattern:
+      /\b(?:United States|U\.S\.|USA|America|American|China|Chinese|Russia|Russian|Iran|Iranian|Israel|Israeli|Ukraine|Ukrainian|Saudi Arabia|Saudi|Japan|Japanese|Germany|German|France|French|India|Indian|United Kingdom|U\.K\.|Britain|British|European Union|EU|North Korea|Taiwan|Mexico|Canada|Brazil)\b/g,
+    category: "b-roll",
+    animation: "kenBurns",
+    descriptionTemplate: (m) => `${m} flag in a high-profile geopolitical setting`,
+    priority: "recommended",
+  },
+  {
+    pattern:
       /\b(?:\d+%|stock|shares|price|earnings|revenue|profit|loss|market cap|valuation|P\/E|EPS|dividend|IPO|quarterly|annual report|beat expectations|missed estimates|guidance)\b/gi,
     category: "chart",
     animation: "zoomIn",
@@ -230,7 +252,89 @@ const RULES: RuleMatch[] = [
   },
 ];
 
+function pickRandom<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Physical oil-barrel scene — varied location/action/style each call (no chart).
+function oilBarrelPrompt(): string {
+  const scene = pickRandom([
+    "rows of steel oil barrels stacked on wooden pallets in a sunlit industrial warehouse",
+    "a forklift moving a pallet of oil drums across a bright shipping yard",
+    "weathered oil barrels lined along a dock with tankers in the background on a clear day",
+    "stacks of blue and rust-red oil drums in a refinery yard under bright daylight",
+    "a worker rolling an oil barrel across a clean concrete loading bay in morning light",
+    "freshly painted oil barrels on a conveyor inside a modern refinery, bright industrial lighting",
+    "oil drums being loaded onto a truck at a fuel depot on a sunny morning",
+    "a neat grid of oil barrels in an open storage yard, aerial three-quarter view, clear sky",
+    "a single oil barrel in sharp focus among many rows in a vast storage facility",
+  ]);
+  return `${scene}, photorealistic industrial editorial photography, warm natural daylight, shallow depth of field, uncluttered lower third, no text overlays, vertical 9:16 format (720x1280)`;
+}
+
+// National-flag geopolitical scene — varied high-profile setting each call.
+function countrySettingPrompt(country: string): string {
+  const flag = country ? `the ${country} flag` : "national flags";
+  const setting = pickRandom([
+    `an ornate ceremonial dialogue chamber, ${flag} flanking a high-backed throne on a grand theater stage, honor guards in dress uniform, dignitaries seated in the foreground, dramatic warm spotlighting`,
+    `a grand parliamentary debate chamber, rows of seated delegates, ${flag} displayed behind the podium, cinematic light from high windows`,
+    `an international summit round-table in a modern conference hall, ${flag} lined along the wall, delegates seated, rich diplomatic lighting`,
+    `a UN-style council chamber, ${flag} at the speaker's rostrum, curved tiers of seats, moody cinematic lighting`,
+    `a sleek high-tech command room, ${flag} on the wall, glowing screens and engineers at work, cool dramatic lighting`,
+    `a stately government press hall, ${flag} as a backdrop behind an empty podium, polished marble, dramatic light`,
+  ]);
+  return `${setting}, photorealistic editorial photography, shallow depth of field, uncluttered lower third, no text overlays, vertical 9:16 format (720x1280)`;
+}
+
+// Candid people-at-a-trading-desk scene — varied people/monitors/setting each call.
+function tradingDeskPrompt(trendColor: string): string {
+  const people = pickRandom([
+    "two young male traders, one standing and pointing at the screens while the other sits at the keyboard",
+    "a focused young trader leaning toward a wall of monitors",
+    "two colleagues in casual t-shirts analyzing the screens together",
+    "a young female trader studying the charts with coffee in hand",
+    "a small team of analysts gathered around a multi-monitor trading desk",
+    "a trader in his thirties reviewing positions, headphones around his neck",
+  ]);
+  const monitors = pickRandom([
+    "a six-screen monitor wall",
+    "a curved multi-monitor stack",
+    "a triple-monitor desk setup",
+    "a row of trading monitors",
+  ]);
+  const setting = pickRandom([
+    "bright modern open-plan trading loft with an industrial ceiling, exposed staircase and potted plants",
+    "airy fintech startup office with wood floors, exposed brick and large windows",
+    "sleek glass-walled trading room flooded with daylight",
+    "stylish co-working space with hanging plants and warm wood desks",
+    "minimal home trading battlestation by a sunlit window in a modern loft",
+  ]);
+  const shot = pickRandom([
+    "candid side-angle lifestyle photo, shallow depth of field",
+    "over-the-shoulder candid shot, soft background blur",
+    "wide candid lifestyle photo from across the room",
+    "natural reportage photography, 35mm look, shallow depth of field",
+  ]);
+  return `${people} at ${monitors} showing stock market charts with ${trendColor}, in a ${setting}, warm natural daylight from large windows, ${shot}, authentic finance lifestyle photography, uncluttered lower third, no price labels, no percentage text, no axis numbers, no text overlays, vertical 9:16 format (720x1280)`;
+}
+
 function generateRuleImagePrompt(category: SceneCategory, matchText: string, chunk: string): string {
+  // Topic overrides only enrich generic chart/b-roll scenes — a specific
+  // person/logo/product match keeps its own subject.
+  if (category === "chart" || category === "b-roll") {
+    // Oil / commodity context → physical barrels, never a chart.
+    if (/\b(?:oil|crude|petroleum|OPEC|barrel|barrels|WTI|Brent|gasoline|diesel|refinery|refineries)\b/i.test(`${chunk} ${matchText}`)) {
+      return oilBarrelPrompt();
+    }
+    // Country / geopolitics context → national flag in a high-profile setting.
+    const countryMatch = `${matchText} ${chunk}`.match(
+      /\b(?:United States|U\.S\.|USA|America|China|Russia|Iran|Israel|Ukraine|Saudi Arabia|Japan|Germany|France|India|United Kingdom|U\.K\.|Britain|European Union|North Korea|Taiwan|Mexico|Canada|Brazil)\b/,
+    );
+    if (countryMatch) {
+      return countrySettingPrompt(countryMatch[0]);
+    }
+  }
+
   // Detect trend direction from context for chart prompts
   const isUptrend = /\b(?:surge|soar|rally|gain|up|rose|climb|jump|beat|exceed)\b/i.test(chunk);
   const isDowntrend = /\b(?:drop|fall|crash|decline|loss|down|plunge|miss|tank|slip)\b/i.test(chunk);
@@ -242,7 +346,7 @@ function generateRuleImagePrompt(category: SceneCategory, matchText: string, chu
     case "logo":
       return `${matchText} logo signage on glass headquarters facade on a clear sunny day, low-angle architectural photography, blue sky and cloud reflections in glass, editorial press photo style, clean plaza in lower third, no text overlays, vertical 9:16 format (720x1280)`;
     case "chart":
-      return `Stock market chart, ${trendColor}, displayed on a large wall screen in a bright modern trading office, natural daylight from floor-to-ceiling windows, clean minimal dashboard, softly blurred office in lower third, no price labels, no percentage text, no axis numbers, no text overlays, vertical 9:16 format (720x1280)`;
+      return tradingDeskPrompt(trendColor);
     case "product":
       return `${matchText}, hero product shot at slight angle on a clean white desk by a window, soft natural daylight, subtle true shadows, premium tech editorial photography, shallow depth of field, smooth uncluttered surface in lower third, no labels, no text overlays, vertical 9:16 format (720x1280)`;
     default:
@@ -399,7 +503,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...result, available });
     } catch (err) {
       console.error("Groq analysis failed:", err);
-      return NextResponse.json({ error: "Groq analysis failed" }, { status: 502 });
+      // Resolve to Claude (then rules) instead of failing the request.
+      if (anthropicKey()) {
+        try {
+          const result = await analyzeWithClaude(scriptText);
+          track("claude", result.tokens);
+          return NextResponse.json({ ...result, available });
+        } catch (claudeErr) {
+          console.error("Claude fallback after Groq failed:", claudeErr);
+        }
+      }
+      const result = analyzeWithRules(scriptText);
+      return NextResponse.json({ ...result, available });
     }
   }
 
@@ -410,7 +525,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...result, available });
     } catch (err) {
       console.error("Claude analysis failed:", err);
-      return NextResponse.json({ error: "Claude analysis failed" }, { status: 502 });
+      // Resolve to Groq (then rules) instead of failing the request.
+      if (process.env.GROQ_API_KEY) {
+        try {
+          const result = await analyzeWithGroq(scriptText);
+          track("groq", result.tokens);
+          return NextResponse.json({ ...result, available });
+        } catch (groqErr) {
+          console.error("Groq fallback after Claude failed:", groqErr);
+        }
+      }
+      const result = analyzeWithRules(scriptText);
+      return NextResponse.json({ ...result, available });
     }
   }
 
