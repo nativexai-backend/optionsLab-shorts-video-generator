@@ -69,8 +69,8 @@ import {
 
 import { postProcessTranscript } from "../lib/transcript";
 import { computeSceneTimings, paceSuggestions, PACE_PRESETS, PaceName } from "../lib/scene-timing";
-import { addImageToLibrary, fetchLibraryImageAsFile } from "../lib/library-client";
-import type { LibraryImage } from "../lib/library-types";
+import { addImageToLibrary, fetchLibraryImageAsFile, fetchLibraryFileById } from "../lib/library-client";
+import type { LibraryImage, LibraryDragPayload } from "../lib/library-types";
 
 // ── Undo/redo history ──
 // Snapshot-based: captures the editable state (files by reference — File objects
@@ -1793,6 +1793,51 @@ export const Editor: React.FC = () => {
     [sceneSuggestions, getAllSuggestionTimings, durationInSeconds, persistFile, currentProjectId, showToast]
   );
 
+  // Drag-and-drop a library image directly onto a timeline track. Unlike
+  // handlePickFromLibrary (which fills a scene's slot), this creates a brand-new
+  // clip at the dropped position/layer, independent of the shot list.
+  const handleDropLibraryImage = useCallback(
+    async (payload: LibraryDragPayload, track: number, startTime: number) => {
+      const file = await fetchLibraryFileById(payload.id, payload.filename);
+      if (!file) {
+        showToast("Couldn't load that library image", "error");
+        return;
+      }
+      const url = URL.createObjectURL(file);
+      const total = durationInSeconds || 5;
+      const segDur = Math.min(5, Math.max(1, total));
+      let start = Math.max(0, Math.min(startTime, total));
+      let end = start + segDur;
+      if (end > total) {
+        end = total;
+        start = Math.max(0, end - segDur);
+      }
+      const newSegment: ImageSegment = {
+        src: url,
+        startTime: start,
+        endTime: end,
+        animation: "kenBurns",
+        track: Math.max(0, track),
+      };
+
+      let newIndex = 0;
+      setImages((prev) => {
+        newIndex = prev.length;
+        return [...prev, newSegment];
+      });
+      setImageFiles((prev) => {
+        const next = [...prev, file];
+        persistFile(`image_${next.length - 1}`, file);
+        return next;
+      });
+      setSelectedImageIndex(newIndex);
+
+      addImageToLibrary(file, { description: payload.description, category: payload.category, projectId: currentProjectId });
+      showToast("Added from library", "success");
+    },
+    [durationInSeconds, persistFile, currentProjectId, showToast]
+  );
+
   const runApplyAllSuggestions = useCallback(() => {
     // Re-pace first: re-split any over-long beats at the current pace using the
     // live transcript/duration. Prefer the original beats (rawSuggestionsRef);
@@ -2239,6 +2284,8 @@ export const Editor: React.FC = () => {
         open={showLibraryModal}
         onClose={() => setShowLibraryModal(false)}
         showToast={showToast}
+        onDropToTimeline={handleDropLibraryImage}
+        onDragActivate={() => setTimelineExpanded(true)}
       />
 
       {/* Thumbnail generator */}

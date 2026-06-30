@@ -248,12 +248,39 @@ export const TimelineImageTrack: React.FC<Props> = ({
     };
   }, [dragState, handlePointerMove, handlePointerUp]);
 
+  // ── External drop: a library image dragged in from the Library modal ──
+  // The modal runs its own pointer-drag, finds this container via
+  // [data-timeline-droptarget], reads the geometry from the data-* attributes
+  // below to do the actual drop, and dispatches these events so we can render
+  // the hover highlight.
+  const [dropTrack, setDropTrack] = useState<number | null>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onOver = (e: Event) => {
+      const detail = (e as CustomEvent<{ clientY: number }>).detail;
+      const rect = el.getBoundingClientRect();
+      setDropTrack(Math.max(0, Math.min(trackCount, Math.floor((detail.clientY - rect.top) / rowHeight))));
+    };
+    const onLeave = () => setDropTrack(null);
+    el.addEventListener("vid-lib-dragover", onOver as EventListener);
+    el.addEventListener("vid-lib-dragleave", onLeave);
+    return () => {
+      el.removeEventListener("vid-lib-dragover", onOver as EventListener);
+      el.removeEventListener("vid-lib-dragleave", onLeave);
+    };
+  }, [trackCount, rowHeight]);
+
   const displayImages = previewImages ?? images;
   const isDragging = dragState !== null;
 
   return (
     <div
       ref={containerRef}
+      data-timeline-droptarget=""
+      data-pps={pxPerSecond}
+      data-row-height={rowHeight}
+      data-track-count={trackCount}
       className="relative flex-shrink-0"
       style={{ width: totalWidth, height }}
     >
@@ -268,14 +295,26 @@ export const TimelineImageTrack: React.FC<Props> = ({
       {/* "Drag here for a new layer" drop row */}
       <div
         className={`absolute left-0 right-0 border-t border-dashed flex items-center justify-center text-micro pointer-events-none transition-colors ${
-          previewTrack === trackCount
+          previewTrack === trackCount || dropTrack === trackCount
             ? "border-violet-500 bg-violet-500/10 text-violet-300"
             : "border-zinc-800 text-zinc-700"
         }`}
         style={{ top: trackCount * rowHeight, height: addRowHeight }}
       >
-        {previewTrack === trackCount ? "Drop to create a new layer" : isDragging ? "drag here for a new layer" : "+ drag a clip here for a new overlay layer"}
+        {previewTrack === trackCount || dropTrack === trackCount
+          ? "Drop to create a new layer"
+          : isDragging
+          ? "drag here for a new layer"
+          : "+ drag a clip here for a new overlay layer"}
       </div>
+
+      {/* Highlight the row a library image is being dragged onto */}
+      {dropTrack !== null && dropTrack < trackCount && (
+        <div
+          className="absolute left-0 right-0 bg-blue-500/15 border-2 border-blue-400/70 rounded-md pointer-events-none z-30"
+          style={{ top: dropTrack * rowHeight, height: rowHeight }}
+        />
+      )}
 
       {displayImages.map((img, i) => {
         const left = img.startTime * pxPerSecond;

@@ -2,6 +2,15 @@
 // No Node APIs here so the UI can import it; the server storage layer and the
 // API routes reuse the same scoring.
 
+// Payload describing a library image dragged from the Library modal onto a
+// timeline track (see LibraryModal's custom pointer-drag).
+export interface LibraryDragPayload {
+  id: string;
+  filename: string;
+  description?: string;
+  category?: string;
+}
+
 export interface LibraryImage {
   id: string; // content hash — identical images dedupe to one record
   filename: string; // original filename as dropped

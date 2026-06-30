@@ -69,11 +69,16 @@ export function libraryFileUrl(id: string): string {
 
 /** Fetch a library image as a File, to load it into a timeline slot. */
 export async function fetchLibraryImageAsFile(image: LibraryImage): Promise<File | null> {
+  return fetchLibraryFileById(image.id, image.filename);
+}
+
+/** Same as fetchLibraryImageAsFile but from a bare id/filename (e.g. a drag payload). */
+export async function fetchLibraryFileById(id: string, filename: string): Promise<File | null> {
   try {
-    const res = await fetch(libraryFileUrl(image.id));
+    const res = await fetch(libraryFileUrl(id));
     if (!res.ok) return null;
     const blob = await res.blob();
-    return new File([blob], image.filename, { type: blob.type });
+    return new File([blob], filename || `${id}.png`, { type: blob.type });
   } catch {
     return null;
   }

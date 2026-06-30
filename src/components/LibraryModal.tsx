@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IconButton, Chip } from "./IconButton";
-import type { LibraryImage } from "../lib/library-types";
+import type { LibraryImage, LibraryDragPayload } from "../lib/library-types";
 import { searchLibrary, updateLibraryImage, deleteLibraryImage, libraryFileUrl } from "../lib/library-client";
 import { SCENE_CATEGORIES } from "../remotion/types";
 
@@ -10,15 +10,89 @@ interface Props {
   open: boolean;
   onClose: () => void;
   showToast: (message: string, type: "error" | "success") => void;
+  // Drop a library image onto a timeline track at the given layer/start time.
+  onDropToTimeline?: (payload: LibraryDragPayload, track: number, startTime: number) => void;
+  // Called the moment a drag actually starts, so the host can reveal the
+  // timeline (it's the drop target) if it happens to be collapsed.
+  onDragActivate?: () => void;
 }
 
 const CATEGORIES = [...SCENE_CATEGORIES.map((c) => c.value), "other"];
+const DRAG_THRESHOLD = 5; // px the pointer must move before a click becomes a drag
 
-export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
+export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast, onDropToTimeline, onDragActivate }) => {
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [images, setImages] = useState<LibraryImage[]>([]);
   const [selected, setSelected] = useState<LibraryImage | null>(null);
+  // Custom pointer-drag of a library image out toward the timeline. We avoid
+  // native HTML5 DnD because the full-screen modal makes the timeline both
+  // invisible and un-hit-testable as a drop target; instead we render a
+  // floating ghost, make the modal click-through so elementFromPoint can see
+  // the timeline beneath it, and do the drop ourselves.
+  const [drag, setDrag] = useState<{ payload: LibraryDragPayload; x: number; y: number } | null>(null);
+  const dragging = drag !== null;
+  const pendingRef = useRef<{ payload: LibraryDragPayload; startX: number; startY: number; active: boolean } | null>(null);
+  const overTargetRef = useRef<Element | null>(null);
+  // Whether the most recent pointer interaction turned into a drag, so the
+  // click that follows pointerup doesn't also open the editor panel.
+  const draggedRef = useRef(false);
+
+  const findDropTarget = (x: number, y: number): Element | null =>
+    document.elementFromPoint(x, y)?.closest("[data-timeline-droptarget]") ?? null;
+
+  const clearOverTarget = () => {
+    if (overTargetRef.current) {
+      overTargetRef.current.dispatchEvent(new CustomEvent("vid-lib-dragleave"));
+      overTargetRef.current = null;
+    }
+  };
+
+  const startPointerDrag = useCallback((payload: LibraryDragPayload, e: React.PointerEvent) => {
+    if (!onDropToTimeline) return; // no drop handler → behave as a normal click
+    draggedRef.current = false; // fresh interaction — don't let a stale flag swallow this click
+    pendingRef.current = { payload, startX: e.clientX, startY: e.clientY, active: false };
+
+    const onMove = (ev: PointerEvent) => {
+      const p = pendingRef.current;
+      if (!p) return;
+      if (!p.active) {
+        if (Math.hypot(ev.clientX - p.startX, ev.clientY - p.startY) < DRAG_THRESHOLD) return;
+        p.active = true; // crossed the threshold — this is a drag, not a click
+        onDragActivate?.(); // reveal the timeline (drop target) if collapsed
+      }
+      setDrag({ payload: p.payload, x: ev.clientX, y: ev.clientY });
+      const target = findDropTarget(ev.clientX, ev.clientY);
+      if (target !== overTargetRef.current) clearOverTarget();
+      if (target) {
+        overTargetRef.current = target;
+        target.dispatchEvent(new CustomEvent("vid-lib-dragover", { detail: { clientY: ev.clientY } }));
+      }
+    };
+
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      const p = pendingRef.current;
+      pendingRef.current = null;
+      setDrag(null);
+      clearOverTarget();
+      draggedRef.current = !!p?.active;
+      if (!p?.active) return; // never moved → it was a click; onClick handles it
+      const target = findDropTarget(ev.clientX, ev.clientY) as HTMLElement | null;
+      if (!target || !onDropToTimeline) return;
+      const rect = target.getBoundingClientRect();
+      const pps = Number(target.dataset.pps) || 1;
+      const rowHeight = Number(target.dataset.rowHeight) || 1;
+      const trackCount = Number(target.dataset.trackCount) || 1;
+      const track = Math.max(0, Math.min(trackCount, Math.floor((ev.clientY - rect.top) / rowHeight)));
+      const startTime = Math.max(0, (ev.clientX - rect.left) / pps);
+      onDropToTimeline(p.payload, track, startTime);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [onDropToTimeline, onDragActivate]);
 
   // Search whenever the modal opens or the filters change (state set only in
   // the async resolution, so no synchronous setState-in-effect).
@@ -59,9 +133,16 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center transition-colors ${
+        dragging ? "bg-transparent pointer-events-none" : "bg-black/60"
+      }`}
+      onClick={onClose}
+    >
       <div
-        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col w-[760px] max-w-[92vw] h-[80vh]"
+        className={`bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col w-[760px] max-w-[92vw] h-[80vh] transition-opacity ${
+          dragging ? "opacity-25" : "opacity-100"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header / search */}
@@ -101,14 +182,30 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
                   <button
                     key={img.id}
                     type="button"
-                    onClick={() => setSelected(img)}
-                    className={`relative aspect-[9/16] rounded-lg overflow-hidden border-2 transition-all ${
+                    onPointerDown={(e) => {
+                      if (e.button !== 0) return;
+                      startPointerDrag(
+                        { id: img.id, filename: img.filename, description: img.description, category: img.category },
+                        e
+                      );
+                    }}
+                    onClick={() => {
+                      if (draggedRef.current) {
+                        draggedRef.current = false; // this "click" was the end of a drag — ignore it
+                        return;
+                      }
+                      setSelected(img);
+                    }}
+                    title={onDropToTimeline ? "Drag onto the timeline to add — or click to edit tags" : "Click to edit tags"}
+                    className={`relative aspect-[9/16] rounded-lg overflow-hidden border-2 transition-all touch-none ${
+                      onDropToTimeline ? "cursor-grab active:cursor-grabbing" : ""
+                    } ${
                       selected?.id === img.id ? "border-blue-500 ring-2 ring-blue-500/40" : "border-zinc-700 hover:border-zinc-500"
                     }`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
-                    <span className="absolute bottom-0 inset-x-0 bg-black/60 text-micro text-zinc-300 px-1 py-0.5 truncate text-left">
+                    <img src={libraryFileUrl(img.id)} alt={img.filename} draggable={false} className="w-full h-full object-cover pointer-events-none" />
+                    <span className="absolute bottom-0 inset-x-0 bg-black/60 text-micro text-zinc-300 px-1 py-0.5 truncate text-left pointer-events-none">
                       {img.tags.slice(0, 2).join(", ") || img.filename}
                     </span>
                   </button>
@@ -128,6 +225,22 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast }) => {
           )}
         </div>
       </div>
+
+      {/* Floating drag ghost — follows the cursor toward the timeline */}
+      {drag && (
+        <div
+          className="fixed z-[60] pointer-events-none rounded-md overflow-hidden border-2 border-blue-400 shadow-2xl opacity-90"
+          style={{ left: drag.x + 12, top: drag.y + 12, width: 54, height: 96 }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={libraryFileUrl(drag.payload.id)} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
+      {dragging && (
+        <div className="fixed inset-x-0 bottom-2 z-[60] pointer-events-none flex justify-center">
+          <span className="px-3 py-1 rounded-full bg-blue-600/90 text-white text-xs shadow-lg">Drop on a timeline track to add</span>
+        </div>
+      )}
     </div>
   );
 };
