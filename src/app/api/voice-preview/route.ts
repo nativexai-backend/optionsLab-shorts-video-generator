@@ -20,14 +20,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: `Unknown avatar "${avatar}"` }, { status: 404 });
   }
 
-  const cachePath = path.join(CACHE_DIR, `${avatar}.mp3`);
+  // Key the cache by voiceId so changing an avatar's voice in AVATAR_VOICE_MAP
+  // automatically produces a fresh sample instead of serving the old (or a
+  // stale/partial) file under the same name.
+  const cachePath = path.join(CACHE_DIR, `${avatar}-${voiceId}.mp3`);
   if (fs.existsSync(cachePath)) {
     const cached = fs.readFileSync(cachePath);
     return new NextResponse(new Uint8Array(cached), {
       status: 200,
       headers: {
         "Content-Type": "audio/mpeg",
-        "Cache-Control": "public, max-age=86400",
+        // Don't let the browser pin a sample: the URL (?avatar=name) stays the
+        // same across voice-id changes, so always revalidate against our
+        // (disk-cached, credit-free) server response.
+        "Cache-Control": "no-store",
       },
     });
   }
@@ -72,7 +78,7 @@ export async function GET(req: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "audio/mpeg",
-        "Cache-Control": "public, max-age=86400",
+        "Cache-Control": "no-store",
       },
     });
   } catch (err) {

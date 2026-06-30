@@ -11,9 +11,9 @@ export const AVATAR_VOICE_MAP: Record<string, string> = {
   ethan: "NkNxTZ6iN8l9f3S6I6uU",  // TL Ethan
   nathan: "5K2ColvqEHBgiuNuMseh", // TL Nathan
   // Older custom voices (not part of the TL design set; unused by triage).
-  daniel: "7ZR2iJm4VSCFebusrLi8",
-  malik: "LP5b3qayq4ueDLxlkIYa",
-  lucas: "Mf2qODiujEJgrMxuo4OO",
+  daniel: "TB7rdtCihmzAOzwKauTT", // Daniel Wu
+  malik: "DLKjnlo4TAWPZ5xTZYoQ",
+  lucas: "BkJz3OuzTACL7nqkxVsh",
 };
 
 export const TTS_MODEL_ID = "eleven_multilingual_v2";
