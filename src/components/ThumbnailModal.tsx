@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { Modal } from "./Modal";
 import { VIDEO_WIDTH, VIDEO_HEIGHT, ImageSegment } from "../remotion/types";
 
 interface Props {
@@ -56,8 +57,9 @@ async function drawThumbnail(
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  // Background image, cover-fit
-  ctx.fillStyle = "#0d1117";
+  // Background image, cover-fit. The fallback fill matches the app background
+  // (--background) so an imageless thumbnail blends with the editor around it.
+  ctx.fillStyle = "#09090b";
   ctx.fillRect(0, 0, VIDEO_WIDTH, VIDEO_HEIGHT);
   if (imageSrc) {
     try {
@@ -139,16 +141,6 @@ export const ThumbnailModal: React.FC<Props> = ({
     drawThumbnail(canvasRef.current, selectedSrc, copy, fontSize);
   }, [open, selectedSrc, copy, fontSize]);
 
-  // Esc to close
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
-
   const handleDownload = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -168,14 +160,14 @@ export const ThumbnailModal: React.FC<Props> = ({
     }, "image/png");
   }, [projectName, showToast]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div
-        className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 shadow-2xl flex gap-5 max-h-[90vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      label="Thumbnail"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto p-5 flex gap-5"
+    >
         {/* Live preview — the canvas IS the export, scaled down */}
         <div className="flex-shrink-0">
           <canvas
@@ -186,7 +178,7 @@ export const ThumbnailModal: React.FC<Props> = ({
         </div>
 
         {/* Controls */}
-        <div className="w-72 flex flex-col gap-3 min-h-0">
+        <div className="flex-1 min-w-0 flex flex-col gap-3 min-h-0">
           <div>
             <h3 className="text-sm font-medium text-zinc-200">Thumbnail</h3>
             <p className="text-mini text-zinc-500 mt-0.5">720×1280 — same size as the video. Pick an image, write the copy, download.</p>
@@ -264,7 +256,6 @@ export const ThumbnailModal: React.FC<Props> = ({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

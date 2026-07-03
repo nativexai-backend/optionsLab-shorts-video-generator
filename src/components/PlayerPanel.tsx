@@ -4,7 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import { Chip } from "./IconButton";
 import { VideoComposition } from "../remotion/VideoComposition";
-import { VideoProps, VIDEO_FPS, VIDEO_WIDTH, VIDEO_HEIGHT } from "../remotion/types";
+import { VideoProps, VIDEO_FPS, VIDEO_WIDTH, VIDEO_HEIGHT, ClipTransform } from "../remotion/types";
+import { TransformOverlay } from "./TransformOverlay";
 
 interface Props {
   videoProps: VideoProps;
@@ -15,6 +16,10 @@ interface Props {
   playerRef?: React.RefObject<PlayerRef | null>;
   onOpenSection: (id: string) => void;
   onLoadExample: () => void;
+  // When an overlay (PiP) clip is selected, its box becomes directly
+  // draggable/resizable on the preview
+  selectedOverlay?: { index: number; transform: ClipTransform } | null;
+  onTransformChange?: (index: number, transform: ClipTransform) => void;
 }
 
 const MAX_PLAYER_WIDTH = 360;
@@ -49,6 +54,8 @@ const PlayerPanelInner: React.FC<Props> = ({
   playerRef,
   onOpenSection,
   onLoadExample,
+  selectedOverlay,
+  onTransformChange,
 }) => {
   const { containerRef, size } = usePlayerSize();
   const [showSafeZones, setShowSafeZones] = useState(false);
@@ -138,6 +145,14 @@ const PlayerPanelInner: React.FC<Props> = ({
           loop
         />
         {showSafeZones && <SafeZoneOverlay />}
+        {selectedOverlay && onTransformChange && (
+          <TransformOverlay
+            transform={selectedOverlay.transform}
+            playerWidth={size.width}
+            playerHeight={size.height}
+            onChange={(t) => onTransformChange(selectedOverlay.index, t)}
+          />
+        )}
       </div>
       <div className="flex items-center gap-3">
         <p className="text-micro text-zinc-600 select-none">
@@ -193,7 +208,7 @@ function StepItem({ num, checked, label, onClick, action }: { num: number; check
       className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-zinc-800/70 transition-colors text-left group"
     >
       <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-micro font-semibold ${
-        checked ? "bg-green-500/20 text-green-400" : "bg-zinc-800 text-zinc-500 group-hover:text-zinc-300"
+        checked ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800 text-zinc-500 group-hover:text-zinc-300"
       }`}>
         {checked ? (
           <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">

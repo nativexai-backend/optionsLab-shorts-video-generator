@@ -3,6 +3,9 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo, Suspense, lazy } from "react";
 import Link from "next/link";
 import { IconButton } from "./IconButton";
+import { Button } from "./Button";
+import { ConfirmDialog } from "./Modal";
+import { Spinner } from "./Spinner";
 import type { PlayerRef } from "@remotion/player";
 import { InputPanel } from "./InputPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -33,6 +36,7 @@ import {
   SceneSuggestion,
   ChartSpec,
   ClipTransform,
+  VIDEO_FPS,
 } from "../remotion/types";
 import { AVATAR_VOICE_MAP, DEFAULT_DELIVERY, type VoiceDelivery } from "../lib/voices";
 import {
@@ -62,6 +66,7 @@ import {
   syncFileToServer,
   loadFileFromServer,
   deleteFileOnServer,
+  mergeProjectLists,
   ProjectMeta,
   SerializableState,
   TopicMeta,
@@ -111,29 +116,6 @@ function snapshotKey(s: HistorySnapshot): string {
 }
 
 const HISTORY_LIMIT = 60;
-
-/** Merge local and server project lists. Server wins on conflict (by modifiedAt). */
-function mergeProjectLists(
-  local: ProjectMeta[],
-  server: ProjectMeta[]
-): ProjectMeta[] {
-  const map = new Map<string, ProjectMeta>();
-  for (const p of local) map.set(p.id, p);
-  for (const sp of server) {
-    const existing = map.get(sp.id);
-    if (!existing || sp.modifiedAt >= existing.modifiedAt) {
-      // Thumbnails are local-only — keep ours when the server entry wins.
-      // Never let a server-side "Untitled" clobber a real local name
-      // (state syncs used to auto-create projects as Untitled).
-      const name =
-        sp.name === "Untitled" && existing && existing.name !== "Untitled"
-          ? existing.name
-          : sp.name;
-      map.set(sp.id, { ...sp, name, thumb: sp.thumb ?? existing?.thumb });
-    }
-  }
-  return Array.from(map.values());
-}
 
 export const Editor: React.FC = () => {
   const [loaded, setLoaded] = useState(false);
@@ -796,13 +778,15 @@ export const Editor: React.FC = () => {
     });
   }, [durationInSeconds]);
 
-  // Warn before losing work (only when there's content)
+  // Warn before closing only while something is actually in flight — state
+  // auto-saves continuously, so an idle project loses nothing on close.
+  const workInFlight = isGeneratingAudio || isTranscribing || isAnalyzingScript;
   useEffect(() => {
-    if (!hasContent) return;
+    if (!workInFlight) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [hasContent]);
+  }, [workInFlight]);
 
   // --- Project handlers ---
 
@@ -914,9 +898,22 @@ export const Editor: React.FC = () => {
     const audio = new window.Audio();
     audio.addEventListener("loadedmetadata", () => {
       const dur = audio.duration;
+      const prevDur = durationInSeconds;
       setDurationInSeconds(dur);
       setImages((prev) => {
         if (prev.length === 0) return prev;
+        // A layout already exists (e.g. switching takes): rescale timings to
+        // the new duration instead of wiping hand-tuned positions.
+        if (prevDur > 0) {
+          const scale = dur / prevDur;
+          if (Math.abs(scale - 1) < 0.0001) return prev;
+          return prev.map((img) => ({
+            ...img,
+            startTime: Math.min(img.startTime * scale, dur),
+            endTime: Math.min(img.endTime * scale, dur),
+            animation: img.animation ?? "kenBurns",
+          }));
+        }
         const segDur = dur / prev.length;
         return prev.map((img, i) => ({
           ...img,
@@ -927,7 +924,7 @@ export const Editor: React.FC = () => {
       });
     });
     audio.src = url;
-  }, [persistFile]);
+  }, [persistFile, durationInSeconds]);
 
   const handleMusicUpload = useCallback((file: File) => {
     setMusicFile(file);
@@ -1014,6 +1011,14 @@ export const Editor: React.FC = () => {
         rawSuggestionsRef.current = newSugs; // curated list — pace won't resurrect it
       }
 
+      // Keep the selection pointing at the same clip (or clear it if that clip
+      // was the one removed) so the inspector never silently morphs.
+      setSelectedImageIndex((sel) => {
+        if (sel == null) return sel;
+        if (sel === index) return null;
+        return sel > index ? sel - 1 : sel;
+      });
+
       showToast("Block removed", "success", {
         label: "Undo",
         onClick: () => {
@@ -1022,6 +1027,7 @@ export const Editor: React.FC = () => {
           setSceneSuggestions(prevSugs);
           rawSuggestionsRef.current = prevSugs;
           prevFiles.forEach((f, i) => persistFile(`image_${i}`, f));
+          setSelectedImageIndex(null);
           setToast(null);
         },
       });
@@ -1080,6 +1086,14 @@ export const Editor: React.FC = () => {
         setSceneSuggestions(nextSugs);
         rawSuggestionsRef.current = nextSugs;
       }
+      // Follow the moved clip so the inspector keeps showing what was dragged
+      setSelectedImageIndex((sel) => {
+        if (sel == null) return sel;
+        if (sel === fromIndex) return toIndex;
+        if (fromIndex < sel && toIndex >= sel) return sel - 1;
+        if (fromIndex > sel && toIndex <= sel) return sel + 1;
+        return sel;
+      });
     },
     [persistFile, sceneSuggestions]
   );
@@ -1095,15 +1109,6 @@ export const Editor: React.FC = () => {
       }));
     });
   }, [durationInSeconds]);
-
-  const handleImageTimingChange = useCallback(
-    (index: number, field: "startTime" | "endTime", value: number) => {
-      setImages((prev) =>
-        prev.map((img, i) => (i === index ? { ...img, [field]: value } : img))
-      );
-    },
-    []
-  );
 
   const handleImageAnimationChange = useCallback(
     (index: number, animation: ImageAnimation) => {
@@ -1171,9 +1176,59 @@ export const Editor: React.FC = () => {
     handleImageTrackChange(selectedImageIndex, maxTrack + 1);
   }, [selectedImageIndex, images, handleImageTrackChange]);
 
+  // Selecting a clip also seeks the player to it, so the timeline is a real
+  // editing surface: click a block, see that moment.
   const handleSelectImage = useCallback((index: number) => {
     setSelectedImageIndex(index);
+    const img = images[index];
+    if (img) playerRef.current?.seekTo(Math.round(img.startTime * VIDEO_FPS));
+  }, [images]);
+
+  const handleDeselectImage = useCallback(() => {
+    setSelectedImageIndex(null);
   }, []);
+
+  // Split the selected clip at the playhead: the slot becomes two blocks that
+  // share the same visual, so one long shot can be varied without rebuilding
+  // the shot list. All parallel arrays (files / segments / scene cards) get
+  // the same insertion so indices stay 1:1.
+  const handleSplitAtPlayhead = useCallback(() => {
+    if (selectedImageIndex == null) return;
+    const img = images[selectedImageIndex];
+    const player = playerRef.current;
+    if (!img || !player) return;
+    const t = player.getCurrentFrame() / VIDEO_FPS;
+    if (t <= img.startTime + 0.25 || t >= img.endTime - 0.25) {
+      showToast("Move the playhead inside the clip to split", "error");
+      return;
+    }
+
+    setImages((prev) => {
+      const next = [...prev];
+      const clip = next[selectedImageIndex];
+      next[selectedImageIndex] = { ...clip, endTime: t };
+      next.splice(selectedImageIndex + 1, 0, { ...clip, startTime: t });
+      return next;
+    });
+    setImageFiles((prev) => {
+      if (selectedImageIndex >= prev.length) return prev;
+      const next = [...prev];
+      next.splice(selectedImageIndex + 1, 0, prev[selectedImageIndex]);
+      next.forEach((f, i) => persistFile(`image_${i}`, f));
+      return next;
+    });
+    if (selectedImageIndex < sceneSuggestions.length) {
+      const next = [...sceneSuggestions];
+      next.splice(selectedImageIndex + 1, 0, {
+        ...next[selectedImageIndex],
+        id: `scene-split-${Date.now()}`,
+      });
+      setSceneSuggestions(next);
+      rawSuggestionsRef.current = next;
+    }
+    setSelectedImageIndex(selectedImageIndex + 1); // the new right half
+    showToast("Clip split — replace either half to vary the visual", "success");
+  }, [selectedImageIndex, images, sceneSuggestions, persistFile, showToast]);
 
   // Keyboard editing for the selected timeline clip: Delete removes it, arrows
   // nudge its timing (preserving duration; Shift = larger step). Guarded so it
@@ -1185,10 +1240,19 @@ export const Editor: React.FC = () => {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if ((e.target as HTMLElement)?.isContentEditable) return;
 
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSelectedImageIndex(null);
+        return;
+      }
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        handleRemoveImage(selectedImageIndex);
-        setSelectedImageIndex(null);
+        handleRemoveImage(selectedImageIndex); // also clears the selection
+        return;
+      }
+      if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        handleSplitAtPlayhead();
         return;
       }
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -1202,7 +1266,7 @@ export const Editor: React.FC = () => {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedImageIndex, images, durationInSeconds, handleRemoveImage, handleImageTimingBatchChange]);
+  }, [selectedImageIndex, images, durationInSeconds, handleRemoveImage, handleImageTimingBatchChange, handleSplitAtPlayhead]);
 
   const handleToggleTimeline = useCallback(() => {
     setTimelineExpanded((prev) => !prev);
@@ -2005,13 +2069,11 @@ export const Editor: React.FC = () => {
     <div className="flex h-screen bg-zinc-950 text-white">
       <aside aria-label="Editor controls" className="w-[420px] flex-shrink-0 border-r border-zinc-800 overflow-y-auto">
         <InputPanel
-          onAudioUpload={handleAudioUpload}
           onImagesUpload={handleImagesUpload}
           onRemoveImage={handleRemoveImage}
           onReplaceImage={handleReplaceImage}
           onReorderImages={handleReorderImages}
           onRedistributeImages={handleRedistributeImages}
-          onImageTimingChange={handleImageTimingChange}
           onImageAnimationChange={handleImageAnimationChange}
           onAvatarSelect={handleAvatarSelect}
           avatarPath={avatarPath}
@@ -2222,6 +2284,14 @@ export const Editor: React.FC = () => {
           playerRef={playerRef}
           onOpenSection={openSection}
           onLoadExample={handleLoadExample}
+          selectedOverlay={
+            selectedImageIndex != null &&
+            (images[selectedImageIndex]?.track ?? 0) > 0 &&
+            images[selectedImageIndex]?.transform
+              ? { index: selectedImageIndex, transform: images[selectedImageIndex].transform! }
+              : null
+          }
+          onTransformChange={handleImageTransformChange}
         />
         </Suspense>
         </ErrorBoundary>
@@ -2248,6 +2318,7 @@ export const Editor: React.FC = () => {
           durationInSeconds={durationInSeconds}
           selectedImageIndex={selectedImageIndex}
           onSelectImage={handleSelectImage}
+          onDeselectImage={handleDeselectImage}
           onImageTimingChange={handleImageTimingBatchChange}
           onImageTrackChange={handleImageTrackChange}
           onDeleteImage={handleRemoveImage}
@@ -2304,61 +2375,30 @@ export const Editor: React.FC = () => {
       />
 
       {/* Re-analyze confirmation dialog */}
-      {showReanalyzeConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowReanalyzeConfirm(false)}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-96 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-zinc-200 mb-2">Re-analyze script?</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed mb-4">
-              This resets the timeline and removes the images you&apos;ve already assigned. The new shot list will create fresh placeholder slots.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setShowReanalyzeConfirm(false)}
-                className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmReanalyze}
-                className="px-4 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-500 rounded-md text-white transition-colors"
-              >
-                Reset & Re-analyze
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showReanalyzeConfirm}
+        onClose={() => setShowReanalyzeConfirm(false)}
+        title="Re-analyze script?"
+        message="This resets the timeline and removes the images you've already assigned. The new shot list will create fresh placeholder slots."
+        confirmLabel="Reset & Re-analyze"
+        danger
+        onConfirm={handleConfirmReanalyze}
+      />
 
       {/* Re-sync confirmation dialog */}
-      {showResyncConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowResyncConfirm(false)}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-96 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-zinc-200 mb-2">Re-sync timeline?</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed mb-4">
-              You&apos;ve assigned {assignedImageCount} image{assignedImageCount === 1 ? "" : "s"}. Re-syncing rebuilds the timeline slots and moves each image onto its best-matching new slot — some may shift position or end up unassigned. You can undo this with ⌘Z.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setShowResyncConfirm(false)}
-                className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => { setShowResyncConfirm(false); runApplyAllSuggestions(); }}
-                className="px-4 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-500 rounded-md text-white transition-colors"
-              >
-                Re-sync
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showResyncConfirm}
+        onClose={() => setShowResyncConfirm(false)}
+        title="Re-sync timeline?"
+        message={`You've assigned ${assignedImageCount} image${assignedImageCount === 1 ? "" : "s"}. Re-syncing rebuilds the timeline slots and moves each image onto its best-matching new slot — some may shift position or end up unassigned. You can undo this with ⌘Z.`}
+        confirmLabel="Re-sync"
+        onConfirm={() => { setShowResyncConfirm(false); runApplyAllSuggestions(); }}
+      />
 
       {/* Auto-setup progress (triage-created projects) */}
       {autoPipeline && autoPipeline !== "done" && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-violet-500/40 rounded-lg shadow-xl px-4 py-2.5 flex items-center gap-3">
-          <svg className="animate-spin h-4 w-4 text-violet-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-zinc-900 border border-violet-500/40 rounded-lg shadow-xl px-4 py-2.5 flex items-center gap-3">
+          <Spinner className="h-4 w-4 text-violet-400" />
           <div className="text-xs text-zinc-200">
             Auto-setup:{" "}
             <span className="text-violet-300">
@@ -2369,15 +2409,12 @@ export const Editor: React.FC = () => {
         </div>
       )}
       {autoPipeline === "done" && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 border border-emerald-500/40 rounded-lg shadow-xl px-4 py-2.5 flex items-center gap-3">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-zinc-900 border border-emerald-500/40 rounded-lg shadow-xl px-4 py-2.5 flex items-center gap-3">
           <span className="text-xs text-emerald-400">✓ Setup complete</span>
           {pendingProjects.length > 0 ? (
-            <button
-              onClick={() => loadProject(pendingProjects[0].id)}
-              className="text-xs font-medium text-white bg-gradient-to-br from-blue-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 rounded-md px-2.5 py-1 transition active:scale-[0.97]"
-            >
+            <Button variant="primary" size="sm" onClick={() => loadProject(pendingProjects[0].id)}>
               Next: {pendingProjects[0].name} ({pendingProjects.length} left) →
-            </button>
+            </Button>
           ) : (
             <span className="text-xs text-zinc-400">all projects set up</span>
           )}
@@ -2386,13 +2423,13 @@ export const Editor: React.FC = () => {
       )}
 
       {/* Toast — always-rendered live region for screen reader announcements */}
-      <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+      <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60]">
         {toast && (
           <div
             className={`toast-enter px-4 py-3 rounded-lg shadow-xl text-sm font-medium flex items-center gap-3 ${
               toast.type === "error"
                 ? "bg-red-600 text-white"
-                : "bg-green-600 text-white"
+                : "bg-emerald-600 text-white"
             }`}
           >
             {toast.message}

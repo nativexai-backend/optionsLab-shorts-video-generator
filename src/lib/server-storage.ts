@@ -1,6 +1,13 @@
 import path from "path";
 import fs from "fs/promises";
 import type { ProjectMeta, SerializableState } from "./storage";
+import {
+  assertSafeSegment,
+  createLock,
+  readJsonFile,
+  safeExtension,
+  writeJsonFileAtomic,
+} from "./json-file";
 
 export const DATA_DIR =
   process.env.DATA_DIR ?? path.join(process.cwd(), "data/projects");
@@ -28,37 +35,29 @@ function filesDir(id: string): string {
 // ── Projects index ──
 
 export async function readProjectsIndex(): Promise<ProjectMeta[]> {
-  try {
-    const raw = await fs.readFile(indexPath(), "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+  return readJsonFile<ProjectMeta[]>(indexPath(), []);
 }
 
 export async function writeProjectsIndex(
   projects: ProjectMeta[]
 ): Promise<void> {
-  await ensureDir(DATA_DIR);
-  await fs.writeFile(indexPath(), JSON.stringify(projects, null, 2));
+  await writeJsonFileAtomic(indexPath(), projects);
 }
 
 // Concurrent PUTs (rename + state auto-save) used to read-modify-write the
 // index simultaneously and lose updates — project names reverted to
 // "Untitled". All index mutations now run through this queue.
-let indexLock: Promise<unknown> = Promise.resolve();
+const withIndexLock = createLock();
 
 export async function updateProjectsIndex<T>(
   mutator: (projects: ProjectMeta[]) => T | Promise<T>
 ): Promise<T> {
-  const run = indexLock.then(async () => {
+  return withIndexLock(async () => {
     const projects = await readProjectsIndex();
     const result = await mutator(projects);
     await writeProjectsIndex(projects);
     return result;
   });
-  indexLock = run.catch(() => {});
-  return run;
 }
 
 // ── Project state ──
@@ -66,20 +65,16 @@ export async function updateProjectsIndex<T>(
 export async function readProjectState(
   id: string
 ): Promise<SerializableState | null> {
-  try {
-    const raw = await fs.readFile(statePath(id), "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  assertSafeSegment(id);
+  return readJsonFile<SerializableState | null>(statePath(id), null);
 }
 
 export async function writeProjectState(
   id: string,
   state: SerializableState
 ): Promise<void> {
-  await ensureDir(projectDir(id));
-  await fs.writeFile(statePath(id), JSON.stringify(state, null, 2));
+  assertSafeSegment(id);
+  await writeJsonFileAtomic(statePath(id), state);
 }
 
 // ── Binary files ──
@@ -88,11 +83,16 @@ export async function saveServerFile(
   id: string,
   key: string,
   buffer: Buffer,
-  filename: string
+  filename: string,
+  mimeType?: string
 ): Promise<void> {
+  assertSafeSegment(id);
+  assertSafeSegment(key);
   const dir = filesDir(id);
   await ensureDir(dir);
-  const ext = path.extname(filename);
+  // Extension comes from the MIME allowlist (or a sanitized filename ext) —
+  // never raw from the uploaded name.
+  const ext = safeExtension(mimeType, filename);
   const filePath = path.join(dir, `${key}${ext}`);
   await fs.writeFile(filePath, buffer);
   // Also store a small metadata sidecar so we can recover filename + type
@@ -106,6 +106,8 @@ export async function loadServerFile(
   id: string,
   key: string
 ): Promise<{ buffer: Buffer; filename: string } | null> {
+  assertSafeSegment(id);
+  assertSafeSegment(key);
   const dir = filesDir(id);
   try {
     const entries = await fs.readdir(dir);
@@ -138,6 +140,8 @@ export async function deleteServerFile(
   id: string,
   key: string
 ): Promise<void> {
+  assertSafeSegment(id);
+  assertSafeSegment(key);
   const dir = filesDir(id);
   try {
     const entries = await fs.readdir(dir);
@@ -155,6 +159,7 @@ export async function deleteServerFile(
 // ── Delete entire project directory ──
 
 export async function deleteServerProjectDir(id: string): Promise<void> {
+  assertSafeSegment(id);
   try {
     await fs.rm(projectDir(id), { recursive: true, force: true });
   } catch {

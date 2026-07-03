@@ -6,6 +6,20 @@ const TIMELINE_BLOCK_COLORS = [
   "#8b5cf6", "#06b6d4", "#f97316", "#ec4899",
 ];
 
+// Tiny string hash → palette index, so a clip's color follows its content
+// (src / ticker) instead of its array position — deleting a clip no longer
+// recolors everything after it.
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function blockColor(img: ImageSegment, i: number): string {
+  const key = img.src || img.chart?.ticker || String(i);
+  return TIMELINE_BLOCK_COLORS[hashString(key) % TIMELINE_BLOCK_COLORS.length];
+}
+
 const MIN_DURATION = 0.5;
 
 interface Props {
@@ -14,6 +28,7 @@ interface Props {
   pxPerSecond: number;
   selectedIndex: number | null;
   onSelect: (index: number) => void;
+  onDeselect: () => void;
   onTimingChange: (index: number, startTime: number, endTime: number) => void;
   onTrackChange: (index: number, track: number) => void;
   onDelete: (index: number) => void;
@@ -64,6 +79,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
   pxPerSecond,
   selectedIndex,
   onSelect,
+  onDeselect,
   onTimingChange,
   onTrackChange,
   onDelete,
@@ -283,6 +299,9 @@ export const TimelineImageTrack: React.FC<Props> = ({
       data-track-count={trackCount}
       className="relative flex-shrink-0"
       style={{ width: totalWidth, height }}
+      // Clicks on empty track space clear the selection (block clicks stop
+      // propagation, so only the background reaches this handler)
+      onClick={onDeselect}
     >
       {/* Track row separators */}
       {Array.from({ length: trackCount }, (_, r) => (
@@ -320,7 +339,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
         const left = img.startTime * pxPerSecond;
         const width = (img.endTime - img.startTime) * pxPerSecond;
         const isSelected = i === selectedIndex;
-        const color = TIMELINE_BLOCK_COLORS[i % TIMELINE_BLOCK_COLORS.length];
+        const color = blockColor(img, i);
         const thisDragging = dragState?.index === i && dragState.mode === "move";
         const tr = thisDragging && previewTrack != null ? previewTrack : (img.track ?? 0);
 
@@ -370,7 +389,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
             )}
             {/* Missing file — distinct warning state */}
             {isMissing && (
-              <div className="absolute inset-0 flex items-center justify-center gap-1 bg-rose-950/70 text-rose-300 pointer-events-none">
+              <div className="absolute inset-0 flex items-center justify-center gap-1 bg-red-950/70 text-red-300 pointer-events-none">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15l-5-5L5 21" /><path d="M3 3l18 18" /><circle cx="9" cy="9" r="1.5" /></svg>
                 {wideEnough && <span className="text-micro font-medium">missing</span>}
               </div>
@@ -403,7 +422,7 @@ export const TimelineImageTrack: React.FC<Props> = ({
                 e.stopPropagation();
                 onDelete(i);
               }}
-              className="absolute right-1 top-1 z-20 hidden group-hover:flex items-center justify-center w-4 h-4 rounded bg-black/60 hover:bg-rose-600 text-white"
+              className="absolute right-1 top-1 z-20 hidden group-hover:flex items-center justify-center w-4 h-4 rounded bg-black/60 hover:bg-red-600 text-white"
             >
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>

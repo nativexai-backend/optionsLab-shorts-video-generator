@@ -5,12 +5,12 @@
  */
 
 export const AVATAR_VOICE_MAP: Record<string, string> = {
-  // TL voices designed via text-to-voice in ElevenLabs. These three are the
-  // characters used by the triage flow (gender → Claire/Nathan/Ethan).
+  // Voices designed via text-to-voice in ElevenLabs. All six characters are
+  // usable by the triage flow (digest character name, or gender fallback:
+  // female → Claire, male → rotation over the five male avatars).
   claire: "kKAaQzEMVeLLLPOrH5EV", // TL Claire
   ethan: "NkNxTZ6iN8l9f3S6I6uU",  // TL Ethan
   nathan: "5K2ColvqEHBgiuNuMseh", // TL Nathan
-  // Older custom voices (not part of the TL design set; unused by triage).
   daniel: "TB7rdtCihmzAOzwKauTT", // Daniel Wu
   malik: "DLKjnlo4TAWPZ5xTZYoQ",
   lucas: "BkJz3OuzTACL7nqkxVsh",

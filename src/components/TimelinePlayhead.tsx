@@ -18,6 +18,24 @@ export const TimelinePlayhead: React.FC<Props> = ({
   const lineRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
   const isPlayingRef = useRef(false);
+  // Follow-playback scrolling: we auto-scroll the container to keep the
+  // playhead in view, but back off while the user is scrolling manually.
+  const lastManualScrollRef = useRef(0);
+  const autoScrollingRef = useRef(false);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      if (autoScrollingRef.current) {
+        autoScrollingRef.current = false;
+        return;
+      }
+      lastManualScrollRef.current = Date.now();
+    };
+    container.addEventListener("scroll", onScroll);
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [scrollContainerRef]);
 
   const updatePosition = useCallback(() => {
     const player = playerRef.current;
@@ -27,7 +45,24 @@ export const TimelinePlayhead: React.FC<Props> = ({
     const timeSec = frame / VIDEO_FPS;
     const x = timeSec * pxPerSecond;
     line.style.transform = `translateX(${x}px)`;
-  }, [playerRef, pxPerSecond]);
+
+    // Keep the playhead visible during playback (unless the user just
+    // scrolled somewhere on purpose — give them a couple of seconds).
+    const container = scrollContainerRef.current;
+    if (
+      container &&
+      isPlayingRef.current &&
+      Date.now() - lastManualScrollRef.current > 2000 &&
+      container.scrollWidth > container.clientWidth
+    ) {
+      const viewLeft = container.scrollLeft;
+      const viewRight = viewLeft + container.clientWidth;
+      if (x < viewLeft || x > viewRight - 24) {
+        autoScrollingRef.current = true;
+        container.scrollLeft = Math.max(0, x - 48); // page forward, playhead near the left
+      }
+    }
+  }, [playerRef, pxPerSecond, scrollContainerRef]);
 
   // rAF loop during playback + polling fallback to recover from Player remounts
   useEffect(() => {
@@ -138,9 +173,14 @@ export const TimelinePlayhead: React.FC<Props> = ({
       className="absolute top-0 z-30 pointer-events-none"
       style={{ height, willChange: "transform" }}
     >
-      {/* Clickable head area */}
+      {/* Head flag */}
       <div
         className="absolute -left-1.5 -top-1 w-3 h-3 bg-red-500 rounded-full cursor-col-resize pointer-events-auto"
+        onPointerDown={handlePointerDown}
+      />
+      {/* Full-height invisible grab area so the line itself is draggable */}
+      <div
+        className="absolute -left-1.5 top-0 w-3 h-full cursor-col-resize pointer-events-auto"
         onPointerDown={handlePointerDown}
       />
       {/* Vertical line */}

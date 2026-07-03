@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropicKey } from "@/lib/anthropic";
+import { callGroq, callClaude, extractJson } from "@/lib/llm";
+import { recordUsage } from "@/lib/usage-storage";
 
 // Candidate topic as sent from the client (a trimmed ParsedTopic).
 interface Candidate {
@@ -29,7 +31,6 @@ interface Skip {
 }
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 function buildPrompts(target: number, topics: Candidate[], recent: RecentTopic[]) {
   const system = `You are an editorial producer for a short-form finance video channel (TikTok / Reels / Shorts).
@@ -58,9 +59,7 @@ Return ONLY valid minified JSON, no prose, in exactly this shape:
 
 // Pull picks/skips out of a model's raw text and validate against the candidate set.
 function parseSelection(text: string, topics: Candidate[], target: number): { picks: Pick[]; skipped: Skip[] } {
-  const json = text.match(/\{[\s\S]*\}/);
-  if (!json) throw new Error("No JSON in model response");
-  const parsed = JSON.parse(json[0]) as { picks?: Pick[]; skipped?: Skip[] };
+  const parsed = JSON.parse(extractJson(text)) as { picks?: Pick[]; skipped?: Skip[] };
 
   const valid = new Set(topics.map((t) => t.rank));
   const picks = (parsed.picks ?? []).filter((p) => valid.has(p.rank)).slice(0, target);
@@ -74,37 +73,15 @@ async function selectWithGroq(
   user: string,
   topics: Candidate[],
   target: number,
-): Promise<{ picks: Pick[]; skipped: Skip[] }> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("No GROQ_API_KEY");
-
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0.4,
-      max_tokens: 1500,
-      response_format: { type: "json_object" },
-    }),
+): Promise<{ picks: Pick[]; skipped: Skip[]; tokens: number }> {
+  const { text, tokens } = await callGroq({
+    system,
+    messages: [{ role: "user", content: user }],
+    temperature: 0.4,
+    maxTokens: 1500,
+    jsonMode: true,
   });
-
-  if (!res.ok) {
-    const err = await res.text().catch(() => "Groq API error");
-    throw new Error(`Groq ${res.status}: ${err}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("No content in Groq response");
-  return parseSelection(content, topics, target);
+  return { ...parseSelection(text, topics, target), tokens };
 }
 
 async function selectWithClaude(
@@ -112,19 +89,14 @@ async function selectWithClaude(
   user: string,
   topics: Candidate[],
   target: number,
-  key: string,
-): Promise<{ picks: Pick[]; skipped: Skip[] }> {
-  const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic({ apiKey: key });
-  const response = await client.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 1500,
+): Promise<{ picks: Pick[]; skipped: Skip[]; tokens: number }> {
+  const { text, tokens } = await callClaude({
     system,
+    model: CLAUDE_MODEL,
+    maxTokens: 1500,
     messages: [{ role: "user", content: user }],
   });
-
-  const text = response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
-  return parseSelection(text, topics, target);
+  return { ...parseSelection(text, topics, target), tokens };
 }
 
 export async function POST(req: NextRequest) {
@@ -170,12 +142,17 @@ export async function POST(req: NextRequest) {
     if (key) attempts.push("claude");
   }
 
+  // Triage isn't tied to a project — usage lands in the unassigned bucket.
+  const track = (method: "groq" | "claude", tokens: number) =>
+    recordUsage(undefined, method, { tokens }).catch(() => {});
+
   for (const method of attempts) {
     try {
-      const { picks, skipped } =
+      const { picks, skipped, tokens } =
         method === "groq"
           ? await selectWithGroq(system, user, topics, target)
-          : await selectWithClaude(system, user, topics, target, key as string);
+          : await selectWithClaude(system, user, topics, target);
+      track(method, tokens);
       return NextResponse.json({ method, picks, skipped });
     } catch (err) {
       // Try the next provider; if all fail we fall through to score.

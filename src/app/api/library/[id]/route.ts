@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { patchLibraryImage, deleteLibraryImage } from "@/lib/library-storage";
+import { isSafeSegment } from "@/lib/json-file";
+
+// The id names a file on disk — reject anything path-like.
+function badId() {
+  return NextResponse.json({ error: "Invalid image id" }, { status: 400 });
+}
 
 // PATCH /api/library/[id]  → edit tags / description / category
 export async function PATCH(
@@ -7,6 +13,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (!isSafeSegment(id)) return badId();
   let body: { tags?: string[]; description?: string; category?: string };
   try {
     body = await req.json();
@@ -26,6 +33,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (!isSafeSegment(id)) return badId();
   await deleteLibraryImage(id);
   return NextResponse.json({ ok: true });
 }

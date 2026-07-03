@@ -1,5 +1,5 @@
 import path from "path";
-import fs from "fs/promises";
+import { createLock, readJsonFile, writeJsonFileAtomic } from "./json-file";
 
 // Per-project, per-API usage tracking. Metrics differ by API:
 //   elevenlabs → characters (≈ credits)   groq/claude → tokens   whisper → seconds
@@ -46,11 +46,7 @@ function normalize(parsed: unknown): UsageStore {
 }
 
 export async function readUsageStore(): Promise<UsageStore> {
-  try {
-    return normalize(JSON.parse(await fs.readFile(USAGE_PATH, "utf-8")));
-  } catch {
-    return { byProject: {}, byDay: {} };
-  }
+  return normalize(await readJsonFile<unknown>(USAGE_PATH, { byProject: {}, byDay: {} }));
 }
 
 /** All-time per-project totals (back-compat helper). */
@@ -71,23 +67,20 @@ function bump(
 }
 
 // Serialize writes so concurrent calls don't clobber each other.
-let lock: Promise<unknown> = Promise.resolve();
+const withLock = createLock();
 
 export async function recordUsage(
   projectId: string | null | undefined,
   api: UsageApi,
   amount: { characters?: number; tokens?: number; seconds?: number }
 ): Promise<void> {
-  const run = lock.then(async () => {
+  return withLock(async () => {
     const store = await readUsageStore();
     const pid = projectId || UNASSIGNED;
     const today = dayKey();
     bump((store.byProject[pid] ??= {}), api, amount); // all-time
     const day = (store.byDay[today] ??= {});
     bump((day[pid] ??= {}), api, amount); // today
-    await fs.mkdir(path.dirname(USAGE_PATH), { recursive: true });
-    await fs.writeFile(USAGE_PATH, JSON.stringify(store, null, 2));
+    await writeJsonFileAtomic(USAGE_PATH, store);
   });
-  lock = run.catch(() => {});
-  return run;
 }

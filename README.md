@@ -18,12 +18,12 @@ Built with **Next.js 16** + **Remotion 4** (React-based video rendering).
 - **Smart image library** — images you drop into scenes (or pick from stock search) are saved and auto-tagged (filename + scene context), then surfaced as thumbnail matches on future shot cards so recurring subjects (a ticker logo, a CEO portrait) are reused instead of re-sourced. Browse/search/edit-tags in the Library modal, and **drag any library image straight onto a timeline track** to add it as a new clip at that position and layer.
 - **Animated stock charts** — branded, on-brand charts that *draw in as the video plays* (replacing off-brand TradingView screenshots). Real OHLC data when a provider key is set, or a realistic synthetic series centered on the ticker's real price level otherwise. Searchable **ticker picker** auto-fills the company name; **real company logos** render in the chart header (with a monogram fallback). Modern card design: logo + ticker/company + date, price + change, a smooth draw-in spline with a glowing endpoint, dashed drop line, and date-labeled x-axis (line / candles / area).
 - **API usage tracking** — per-project, per-API consumption (ElevenLabs characters ≈ credits, Groq/Claude tokens, Whisper seconds) with an overall view, so you can see where spend goes. Top-bar **Usage** button.
-- **Timeline editor** — live Remotion preview, audio waveform, draggable segments, per-image pan/zoom animations (Ken Burns, pans, zooms), drag-to-reorder slots that keep the shot list in lockstep, undo/redo (⌘Z / ⌘⇧Z).
-- **Multi-track timeline** — clips can sit on stacked tracks (z-order: track 0 is the base layer, higher tracks render on top) with a per-clip transform (position + size box) for picture-in-picture / overlay shots. Drag clips between rows, or use the add-track row to stack a new layer. Fully back-compatible: projects without tracks render identically as a single full-frame base layer.
+- **Timeline editor** — live Remotion preview, audio waveform, draggable segments, per-image pan/zoom animations (Ken Burns, pans, zooms), drag-to-reorder slots that keep the shot list in lockstep, undo/redo (⌘Z / ⌘⇧Z). **⌘/Ctrl + scroll zooms the timeline** anchored at the pointer, and clicking anywhere on the waveform seeks the preview.
+- **Multi-track timeline** — clips can sit on stacked tracks (z-order: track 0 is the base layer, higher tracks render on top) with a per-clip transform (position + size box) for picture-in-picture / overlay shots. Drag clips between rows, or use the add-track row to stack a new layer. Selecting an overlay clip puts a **drag/resize box directly on the preview player**, so PiP shots are positioned by hand (the inspector's numeric fields remain the fine-tune path). Fully back-compatible: projects without tracks render identically as a single full-frame base layer.
 - **Daily triage (`/triage`)** — paste the day's "PERSONA SHORTS" production digest and it's parsed deterministically into ranked topics; optionally let **AI pick the top 5** (Groq or Claude) balancing engagement score against a 3-day novelty check, set per-topic posting times across **WAT/ET** timezones, then spin up a ready-to-edit project per selected topic (script + delivery settings + assigned presenter prefilled, pipeline auto-runs on open). Each topic's digest-assigned ElevenLabs `voice_id` is pinned onto its project so the generated voiceover matches the assignment exactly.
 - **Branding** — audio-reactive avatar overlay with four visualizer styles (Pulse Rings, Liquid Wave, Bars, Minimal Glow), animated intro (circle reveal / slide down), OptionsLab outro card with disclaimer, persistent "OptionsLab App" badge.
 - **Background music** — optional bed that loops under the voiceover and fades out at the end.
-- **Export** — server-side render to H.264 MP4 at 720×1280 or 1080×1920, with real progress reporting; renders run as jobs and survive a page reload.
+- **Export** — server-side render to H.264 MP4 at 720×1280 or 1080×1920, with real progress reporting; renders run as jobs, survive a page reload, and can be **cancelled mid-render** (the job aborts server-side and its temp files are cleaned up).
 - **Thumbnail generator** — pick any project image, add bold headline copy over a dark scrim, download a 720×1280 PNG cover. Settings save per project.
 - **Multi-project** — auto-save (500 ms debounce), project switcher with thumbnails and date grouping, Ctrl/Cmd+S manual save, server-side persistence on disk.
 
@@ -67,15 +67,15 @@ The left panel is the workflow, in order:
 3. **③ Captions & Style** — captions appear automatically after a voiceover. Edit the text freely (timings re-align), tune font/position/colors.
 4. **④ Branding** — avatar size/position and speaking-indicator style, badge position, intro animation, outro card (OptionsLab preset or custom).
 
-Then **Export MP4** (top right) — name it, pick 1080×1920 or 720×1280, and the render runs server-side with live progress; the download starts automatically, even if you reloaded mid-render. **Thumbnail** (next to Export) produces a matching PNG cover.
+Then **Export MP4** (top right) — name it, pick 1080×1920 or 720×1280, and the render runs server-side with live progress; the download starts automatically, even if you reloaded mid-render, and a running render can be cancelled from the progress card. **Thumbnail** (next to Export) produces a matching PNG cover.
 
-Shortcuts: `Space` play/pause · `⌘S` save · `⌘Z`/`⌘⇧Z` undo/redo. The **Safe zones** toggle under the player shows where TikTok/Reels UI covers the frame.
+Shortcuts: `Space` play/pause · `⌘S` save · `⌘Z`/`⌘⇧Z` undo/redo · `⌘+scroll` zoom the timeline. The **Safe zones** toggle under the player shows where TikTok/Reels UI covers the frame.
 
 ## How image suggestion works
 
 The shot list turns a script into a set of timed image slots. The guiding principle: **the AI decides _what_ to show; deterministic code decides _how long_ and _how many_** — because LLMs are unreliable at duration and word-position math, which was the original source of mis-timed and oversized blocks.
 
-**1. Analysis (`/api/analyze-script`).** The script is broken into 3–8 content *beats*. Each beat returns a category (`person` / `logo` / `chart` / `product` / `b-roll` / `text-overlay`), the script segment it covers, a suggested animation, a priority, and a production-ready **image prompt**. Prompts follow a bright, modern editorial house style, avoid baked-in text/numbers, and double as stock-photo search queries. **Subject-aware treatments** make recurring topics concrete instead of generic: chart/market beats render as candid traders at a multi-monitor desk (with the trend on the screens, people/setting randomized per shot), oil/commodity beats as physical barrels in varied industrial scenes, and country/geopolitics beats as national flags in ceremonial chambers, summits or high-tech labs. Provider chain: **Groq → Claude → rule-based fallback**, so it works with no paid keys (the rule engine detects tickers, executives, oil, countries, and trend direction via regex); an explicitly-selected provider automatically falls back to the other engine if its call fails, rather than erroring.
+**1. Analysis (`/api/analyze-script`).** The script is broken into 3–8 content *beats*. Each beat returns a category (`person` / `logo` / `chart` / `product` / `b-roll` / `text-overlay`), the script segment it covers, a suggested animation, a priority, and a production-ready **image prompt**. Prompts follow a bright, modern editorial house style, avoid baked-in text/numbers, and double as stock-photo search queries. **Subject-aware treatments** make recurring topics concrete instead of generic: chart/market beats render as candid traders at a multi-monitor desk (with the trend on the screens, people/setting randomized per shot), oil/commodity beats as physical barrels in varied industrial scenes, and country/geopolitics beats as national flags in ceremonial chambers, summits or high-tech labs. Provider chain: **Groq → Claude → rule-based fallback**, so it works with no paid keys (the rule engine detects tickers, executives, oil, countries, and trend direction via regex); an explicitly-selected provider automatically falls back to the other engine if its call fails, rather than erroring. Responses are **coverage-validated** (`src/lib/scene-coverage.ts`): Groq's llama sometimes quotes short excerpts instead of partitioning the whole script, which would make the timeline lopsided — such a response gets one corrective retry, then falls through to the next provider.
 
 **2. Pace-aware splitting (`src/lib/scene-timing.ts`).** Before the list is shown, each beat is measured against the transcript for its real on-screen duration. Any beat longer than the pace cap is split into evenly-sized **sub-shots** at natural sentence/word boundaries, so visuals change at a watchable rhythm instead of one image held for 15+ seconds. Each sub-shot carries a real slice of the script text, so it still timestamp-matches accurately at apply time.
 
@@ -139,7 +139,7 @@ A standalone page (`/triage`) for turning the day's content digest into a batch 
 - **Deterministic parse (`src/lib/triage-parse.ts`, tested).** The "PERSONA SHORTS — PRODUCTION DIGEST" is a highly regular format, so it's parsed with no LLM: topics are split on their `#N — Title (score X/100)` headers, and each block yields its assigned voice (character, gender, `voice_id`, model, delivery settings), social block (description, hashtags, thumbnail copy, captions, Twitter keywords), and the verbatim spoken script. When the digest includes a ready-to-send **`── ELEVENLABS API CALL ──`** block, its request JSON is treated as authoritative for the voice id + settings + text. The parser accepts both the current `VOICE (assigned)` format and the legacy `VOICE-DESIGN CONFIG` format. The source already ranks topics by engagement, so correct parsing alone gives the right order.
 - **AI pick (`/api/triage-select`).** *Pick 5 (AI)* asks an LLM to choose the strongest topics while balancing each one's engagement score against a **3-day novelty check** — recently-posted topics are kept in a local log (`vid-triage-log`) and the model skips anything too similar, explaining why. Provider chain mirrors the rest of the app: **Groq first (free, `llama-3.3-70b-versatile`) → Claude (`claude-sonnet-4-6`) → pure engagement-score order** if no key is set or every call fails. The result banner shows which engine picked.
 - **Scheduling (`src/lib/timezones.ts`).** Per-topic post times are editable in either **WAT** or **ET**, with a live dual clock and staggered defaults (5:00 PM ET, +90 min apart). The digest's own suggested timing is shown alongside.
-- **Create projects.** Selected topics each become a new project — script, delivery settings, and the assigned presenter prefilled — with `autoPipeline` on so the editor auto-runs voice → captions → shot list when the project opens. The on-screen **face** is chosen from the digest's character name (Claire / Ethan / Nathan / Malik / Daniel, falling back to a gender pick), and the digest's **`voice_id` is pinned onto the project** (`voiceDelivery.voiceId`) so TTS reproduces the assigned ElevenLabs voice exactly — independent of the avatar→voice map.
+- **Create projects.** Selected topics each become a new project — script, delivery settings, and the assigned presenter prefilled — with `autoPipeline` on so the editor auto-runs voice → captions → shot list when the project opens. The on-screen **face** is chosen from the digest's character name (Claire / Ethan / Nathan / Malik / Daniel / Lucas, falling back to a gender pick that rotates through all male avatars), and the digest's **`voice_id` is pinned onto the project** (`voiceDelivery.voiceId`) so TTS reproduces the assigned ElevenLabs voice exactly — independent of the avatar→voice map.
 
 ## API usage
 
@@ -163,7 +163,7 @@ src/
 │       ├── analyze-script/       # AI shot list (Claude default; Groq / rules)
 │       ├── refine-prompt/        # one-shot image-prompt rewrite, optionally steered
 │       ├── stock-photo/          # Pexels + SerpApi search (GET) + import-to-library (POST)
-│       ├── render/               # job-based Remotion render (POST start, GET poll/download)
+│       ├── render/               # job-based Remotion render (POST start, GET poll/download, DELETE cancel)
 │       ├── library/              # image library: search/add, [id] PATCH/DELETE, [id]/file
 │       ├── chart-data/           # OHLC from Twelve Data, or synthetic trend-shaped series
 │       ├── ticker-logo/          # proxied real company logos for chart headers
@@ -174,8 +174,11 @@ src/
 │   ├── Editor.tsx                # state owner: projects, takes, history, sync
 │   ├── InputPanel.tsx            # the 4-step control panel
 │   ├── PlayerPanel.tsx           # Remotion <Player> preview + safe zones
-│   ├── Timeline*.tsx             # ruler, waveform, image track, playhead
-│   ├── RenderButton.tsx          # export modal + job polling
+│   ├── Timeline*.tsx             # ruler, waveform, image track, playhead (⌘+scroll zoom, click-to-seek)
+│   ├── TransformOverlay.tsx      # drag/resize box for the selected overlay clip, on the preview
+│   ├── Modal.tsx                 # shared dialog shell (all modals) + ConfirmDialog
+│   ├── Spinner.tsx               # the one loading spinner
+│   ├── RenderButton.tsx          # export modal + job polling + cancel
 │   ├── ThumbnailModal.tsx        # canvas thumbnail generator
 │   ├── LibraryModal.tsx          # image library browser + tag editor
 │   ├── ImageSuggestModal.tsx     # per-scene stock-photo + library picker (Find photos)
@@ -192,10 +195,14 @@ src/
 │   ├── BrandingBadge.tsx         # persistent corner badge
 │   └── types.ts                  # dimensions, schemas, defaults, presets, ChartSpec
 └── lib/
-    ├── storage.ts                # client persistence (localStorage + IndexedDB) + server sync
+    ├── storage.ts                # client persistence (localStorage + IndexedDB) + server sync [tested]
     ├── server-storage.ts         # disk persistence (data/projects), serialized index writes
+    ├── json-file.ts              # path-segment safety, MIME→ext allowlist, atomic JSON I/O   [tested]
+    ├── llm.ts                    # shared Groq/Claude call + JSON-extraction helpers
     ├── transcript.ts             # Whisper token merging + caption re-alignment  [tested]
     ├── scene-timing.ts           # shot list → timeline matching + pace splitting [tested]
+    ├── scene-parse.ts            # LLM response → validated SceneSuggestion[]     [tested]
+    ├── scene-coverage.ts         # rejects shot lists that skip script coverage   [tested]
     ├── tts-text.ts               # money/number/percentage speech normalization [tested]
     ├── pronunciation.ts          # dictionary apply + defaults                  [tested]
     ├── pronunciation-storage.ts  # disk persistence for the pronunciation dict
@@ -227,12 +234,13 @@ Auto-save runs 500 ms after any change and syncs both layers (including the proj
 ```bash
 npm run dev     # dev server (Remotion bundle rebuilds per render in dev)
 npm run build   # production build
-npm test        # vitest — transcript, scene-timing, TTS-normalization, pronunciation, library-matching, triage-parse suites
+npm test        # vitest — transcript, scene-timing, scene-parse, scene-coverage, TTS-normalization, pronunciation, library-matching, triage-parse, storage, json-file suites
 npm run lint
 ```
 
 Notes:
-- Render jobs are kept in process memory (`globalThis`) with output files in the OS temp dir — a server restart forgets in-flight jobs (the client clears its reference automatically).
+- Render jobs are kept in process memory (`globalThis`) with output files in the OS temp dir — a server restart forgets in-flight jobs (the client clears its reference automatically); stale jobs and their files are purged after 2 hours.
+- File-handling routes share hardening helpers (`src/lib/json-file.ts`): route params are validated as safe path segments, upload extensions derive from an allowlisted MIME type, and JSON writes are atomic. The stock-photo import proxy resolves hostnames and refuses private/loopback/metadata addresses (SSRF guard).
 - The local Whisper fallback path is configured at the top of `src/app/api/transcribe/route.ts`; adjust or rely on Groq.
 - `next.config.ts` and `remotion.config.ts` carry the Remotion/Next integration settings.
 

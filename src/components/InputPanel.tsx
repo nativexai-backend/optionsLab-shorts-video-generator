@@ -10,6 +10,7 @@ import { searchLibrary, libraryFileUrl } from "../lib/library-client";
 import { ImageSuggestModal } from "./ImageSuggestModal";
 import { Button } from "./Button";
 import { IconButton, Chip } from "./IconButton";
+import { Spinner } from "./Spinner";
 import { DELIVERY_PRESETS, V3_AUDIO_TAGS, parseVoiceSpec, type VoiceDelivery, type DeliveryPreset, type VoiceSettings } from "../lib/voices";
 import type { TopicMeta } from "../lib/storage";
 import { parseDigest } from "../lib/triage-parse";
@@ -19,13 +20,11 @@ const SCRIPT_CHAR_LIMIT = 5000;
 const SPOKEN_WORDS_PER_SECOND = 2.5;
 
 interface Props {
-  onAudioUpload: (file: File) => void;
   onImagesUpload: (files: File[]) => void;
   onRemoveImage: (index: number) => void;
   onReplaceImage: (index: number, file: File) => void;
   onReorderImages: (fromIndex: number, toIndex: number) => void;
   onRedistributeImages: () => void;
-  onImageTimingChange: (index: number, field: "startTime" | "endTime", value: number) => void;
   onImageAnimationChange: (index: number, animation: ImageAnimation) => void;
   onAvatarSelect: (path: string | null) => void;
   avatarPath: string | null;
@@ -170,10 +169,10 @@ function TakeRow({ take, isActive, onUse, onDelete }: { take: { id: string; src:
   return (
     <div
       className={`group relative rounded-md px-2 py-1.5 transition-colors ${
-        isActive ? "bg-green-950/40 border border-green-500/30" : "border border-transparent hover:bg-zinc-800/60"
+        isActive ? "bg-emerald-950/40 border border-emerald-500/30" : "border border-transparent hover:bg-zinc-800/60"
       }`}
     >
-      {isActive && <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-green-500" />}
+      {isActive && <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-emerald-500" />}
       <audio ref={audioRef} src={take.src} onEnded={() => setPlaying(false)} preload="none" />
       <div className="flex items-center gap-1.5 h-6">
         <IconButton onClick={togglePlay} className="w-5 h-5 flex-shrink-0 hover:bg-zinc-700 text-zinc-400 hover:text-white" title={playing ? "Pause" : "Play"}>
@@ -184,13 +183,13 @@ function TakeRow({ take, isActive, onUse, onDelete }: { take: { id: string; src:
           )}
         </IconButton>
         <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <span className={`text-mini font-medium whitespace-nowrap ${isActive ? "text-green-400" : "text-zinc-300"}`}>{take.label}</span>
-          {isActive && <span className="text-micro bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold leading-none">In video</span>}
+          <span className={`text-mini font-medium whitespace-nowrap ${isActive ? "text-emerald-400" : "text-zinc-300"}`}>{take.label}</span>
+          {isActive && <span className="text-micro bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-bold leading-none">In video</span>}
         </div>
         {!isActive && (
           <Chip
             onClick={onUse}
-            className="flex-shrink-0 px-2 py-0.5 text-micro font-medium bg-zinc-700 hover:bg-green-600 text-zinc-300 hover:text-white rounded"
+            className="flex-shrink-0 px-2 py-0.5 text-micro font-medium bg-zinc-700 hover:bg-emerald-600 text-zinc-300 hover:text-white rounded"
             title="Make this take the voiceover"
           >
             Use
@@ -361,7 +360,7 @@ function ShotListCard({ scene, index, projectId, onApply, onDelete, onPickFromLi
                 className="flex-shrink-0 px-2 py-1 bg-violet-600 hover:bg-violet-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-micro font-medium text-white transition-colors"
               >
                 {isRefining ? (
-                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  <Spinner className="h-3 w-3" />
                 ) : (
                   "Go"
                 )}
@@ -866,7 +865,7 @@ const InputPanelInner: React.FC<Props> = ({
                           }`}
                         >
                           {isLoadingPreview ? (
-                            <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            <Spinner className="h-3 w-3" />
                           ) : isPreviewing ? (
                             <svg width="9" height="9" viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="1" width="3" height="10" rx="0.5" /><rect x="7" y="1" width="3" height="10" rx="0.5" /></svg>
                           ) : (
@@ -923,7 +922,7 @@ const InputPanelInner: React.FC<Props> = ({
             >
               {isGeneratingAudio || isTranscribing ? (
                 <>
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  <Spinner className="h-4 w-4" />
                   {isTranscribing && !isGeneratingAudio ? "Transcribing..." : <>Generating Audio{generatingStartedAt !== null && <> ... <ElapsedTimer startedAt={generatingStartedAt} /></>}</>}
                 </>
               ) : (
@@ -1047,7 +1046,7 @@ const InputPanelInner: React.FC<Props> = ({
               >
                 {isAnalyzingScript ? (
                   <>
-                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    <Spinner className="h-3.5 w-3.5" />
                     Analyzing...
                   </>
                 ) : (
@@ -1221,7 +1220,7 @@ const InputPanelInner: React.FC<Props> = ({
           >
             {isTranscribing ? (
               <>
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                <Spinner className="h-4 w-4" />
                 Transcribing...
               </>
             ) : (
@@ -1707,7 +1706,7 @@ function Section({
         <span
           aria-hidden="true"
           className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-micro font-semibold transition-colors ${
-            done ? "bg-green-500/20 text-green-400" : "bg-zinc-800 text-zinc-500 group-hover:text-zinc-300"
+            done ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800 text-zinc-500 group-hover:text-zinc-300"
           }`}
         >
           {done ? (
@@ -2066,7 +2065,7 @@ function DeliveryControl({
         </div>
       )}
       {specMsg && (
-        <p className={`text-micro ${specMsg.ok ? "text-green-400" : "text-amber-400"}`}>{specMsg.text}</p>
+        <p className={`text-micro ${specMsg.ok ? "text-emerald-400" : "text-amber-400"}`}>{specMsg.text}</p>
       )}
       {advanced && (
         <div className="space-y-1.5 pt-1">
@@ -2359,7 +2358,7 @@ function CaptionEditor({
         onClick={handleApply}
         disabled={!dirty}
         title={!dirty ? "No changes to apply" : undefined}
-        className="w-full px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-green-500"
+        className="w-full px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500"
       >
         Apply Edits
       </button>

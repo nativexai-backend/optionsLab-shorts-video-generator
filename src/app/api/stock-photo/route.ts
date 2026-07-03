@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { lookup } from "dns/promises";
 import { saveLibraryImage } from "@/lib/library-storage";
 
 // Stock-photo search for shot-list scenes. Pexels is the primary source (free,
@@ -161,9 +162,55 @@ function sniffExt(buf: Buffer, contentType: string): string | null {
   return EXT_BY_TYPE[contentType] || null;
 }
 
+// ── SSRF guard ──
+// url/fallbackUrl are client-supplied, so only fetch public http(s) hosts:
+// resolve the hostname and reject loopback / private / link-local / metadata
+// ranges so this route can't be used to probe the local network.
+
+function isPrivateAddress(addr: string, family: number): boolean {
+  if (family === 4) {
+    const [a, b] = addr.split(".").map(Number);
+    return (
+      a === 127 || // 127.0.0.0/8 loopback
+      a === 10 || // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) || // 192.168.0.0/16
+      (a === 169 && b === 254) || // 169.254.0.0/16 link-local + cloud metadata
+      a === 0 // 0.0.0.0/8 resolves locally
+    );
+  }
+  const ip = addr.toLowerCase();
+  if (ip === "::1" || ip === "::") return true; // loopback / unspecified
+  if (ip.startsWith("fc") || ip.startsWith("fd")) return true; // fc00::/7 unique-local
+  if (/^fe[89ab]/.test(ip)) return true; // fe80::/10 link-local
+  // IPv4-mapped (::ffff:127.0.0.1) — re-check the embedded IPv4.
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return isPrivateAddress(mapped[1], 4);
+  return false;
+}
+
+async function isPublicHttpUrl(raw: string): Promise<boolean> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const hostname = url.hostname.replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+  if (hostname.toLowerCase() === "localhost") return false;
+  try {
+    const addrs = await lookup(hostname, { all: true });
+    return addrs.length > 0 && addrs.every((a) => !isPrivateAddress(a.address, a.family));
+  } catch {
+    return false; // unresolvable → don't fetch
+  }
+}
+
 // Fetch a URL as image bytes with a browser UA + timeout. Returns null (not a
 // throw) for anything that isn't a usable image, so the caller can fall back.
 async function fetchImageBytes(url: string): Promise<{ buffer: Buffer; ext: string } | null> {
+  if (!(await isPublicHttpUrl(url))) return null;
   try {
     const res = await fetch(url, {
       headers: {
@@ -200,8 +247,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  if (!body.url || !/^https?:\/\//.test(body.url)) {
-    return NextResponse.json({ error: "A valid image url is required" }, { status: 400 });
+  if (!body.url || !(await isPublicHttpUrl(body.url))) {
+    return NextResponse.json({ error: "A valid public image url is required" }, { status: 400 });
   }
 
   try {

@@ -46,7 +46,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const record = await saveLibraryImage(buffer, { filename, tags, description, category, projectId });
+    const record = await saveLibraryImage(buffer, {
+      filename,
+      mimeType: file.type,
+      tags,
+      description,
+      category,
+      projectId,
+    });
     return NextResponse.json({ image: record }, { status: 201 });
   } catch (err) {
     return NextResponse.json(

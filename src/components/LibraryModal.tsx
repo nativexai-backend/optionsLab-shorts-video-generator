@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { IconButton, Chip } from "./IconButton";
+import { Modal } from "./Modal";
 import type { LibraryImage, LibraryDragPayload } from "../lib/library-types";
 import { searchLibrary, updateLibraryImage, deleteLibraryImage, libraryFileUrl } from "../lib/library-client";
 import { SCENE_CATEGORIES } from "../remotion/types";
@@ -105,13 +106,6 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast, onDrop
     return () => { cancelled = true; };
   }, [open, query, categoryFilter]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
-
   const handleSave = useCallback(async (id: string, patch: { tags: string[]; description: string; category: string }) => {
     const updated = await updateLibraryImage(id, patch);
     if (updated) {
@@ -130,20 +124,16 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast, onDrop
     showToast("Removed from library", "success");
   }, [showToast]);
 
-  if (!open) return null;
-
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center transition-colors ${
-        dragging ? "bg-transparent pointer-events-none" : "bg-black/60"
-      }`}
-      onClick={onClose}
-    >
-      <div
-        className={`bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col w-[760px] max-w-[92vw] h-[80vh] transition-opacity ${
-          dragging ? "opacity-25" : "opacity-100"
-        }`}
-        onClick={(e) => e.stopPropagation()}
+    <>
+      <Modal
+        open={open}
+        onClose={onClose}
+        size="lg"
+        label="Image Library"
+        transparent={dragging}
+        panelClassName={`h-[80vh] transition-opacity ${dragging ? "opacity-25" : "opacity-100"}`}
+        bodyClassName="flex-1 min-h-0 flex flex-col"
       >
         {/* Header / search */}
         <div className="flex items-center gap-2 p-4 border-b border-zinc-800">
@@ -224,12 +214,12 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast, onDrop
             />
           )}
         </div>
-      </div>
+      </Modal>
 
       {/* Floating drag ghost — follows the cursor toward the timeline */}
       {drag && (
         <div
-          className="fixed z-[60] pointer-events-none rounded-md overflow-hidden border-2 border-blue-400 shadow-2xl opacity-90"
+          className="fixed z-[70] pointer-events-none rounded-md overflow-hidden border-2 border-blue-400 shadow-2xl opacity-90"
           style={{ left: drag.x + 12, top: drag.y + 12, width: 54, height: 96 }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -237,11 +227,11 @@ export const LibraryModal: React.FC<Props> = ({ open, onClose, showToast, onDrop
         </div>
       )}
       {dragging && (
-        <div className="fixed inset-x-0 bottom-2 z-[60] pointer-events-none flex justify-center">
+        <div className="fixed inset-x-0 bottom-2 z-[70] pointer-events-none flex justify-center">
           <span className="px-3 py-1 rounded-full bg-blue-600/90 text-white text-xs shadow-lg">Drop on a timeline track to add</span>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

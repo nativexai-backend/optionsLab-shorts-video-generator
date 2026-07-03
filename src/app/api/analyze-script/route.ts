@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SceneSuggestion, ImageAnimation, SceneCategory } from "@/remotion/types";
 import { anthropicKey } from "@/lib/anthropic";
+import { callGroq, callClaude } from "@/lib/llm";
+import { parseSceneResponse } from "@/lib/scene-parse";
+import { checkSceneCoverage } from "@/lib/scene-coverage";
 import { recordUsage } from "@/lib/usage-storage";
 
 // ── Shared prompt ──
@@ -82,35 +85,8 @@ wordRange is [startWordIndex, endWordIndex] (0-based, inclusive) covering which 
 
 FINAL CHECK for every imagePrompt: subject named first and searchable; reads as a PHOTOGRAPH of one real scene (chart scenes show real people at a trading desk; oil scenes show physical barrels; country scenes show national flags in a high-profile chamber/summit/lab — never a bare graphic); BRIGHT natural light stated (except geopolitical/ceremonial scenes, which may be cinematic and moody); contains NO digits, amounts, dates, or quantities; no glow-behind-logo, no split-screen; correct trend color from in-scene screens; upper-two-thirds composition with a calm uncluttered lower third stated; ends with "no text overlays, vertical 9:16 format".`;
 
-// ── Parse LLM response into SceneSuggestion[] ──
-
-function parseLLMResponse(
-  text: string,
-  totalWords: number,
-): SceneSuggestion[] {
-  // Models sometimes wrap the JSON in markdown fences or add a preamble /
-  // trailing note. Strip fences, then slice from the first bracket to the last
-  // matching one so surrounding prose can't break JSON.parse.
-  let cleaned = text.replace(/```(?:json)?/gi, "").trim();
-  const start = cleaned.search(/[[{]/);
-  const end = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
-  if (start >= 0 && end > start) cleaned = cleaned.slice(start, end + 1);
-
-  const parsed = JSON.parse(cleaned);
-  const rawScenes = Array.isArray(parsed) ? parsed : parsed.scenes;
-  if (!Array.isArray(rawScenes)) throw new Error("No scenes array in response");
-
-  return rawScenes.map((s: Record<string, unknown>, i: number) => ({
-    id: `scene-${i}-${Date.now()}`,
-    scriptSegment: String(s.scriptSegment ?? ""),
-    description: String(s.description ?? ""),
-    imagePrompt: String(s.imagePrompt ?? s.description ?? ""),
-    category: validateCategory(s.category),
-    suggestedAnimation: validateAnimation(s.suggestedAnimation),
-    animationReason: String(s.animationReason ?? ""),
-    priority: validatePriority(s.priority),
-    wordRange: validateWordRange(s.wordRange, totalWords),
-  }));
+function buildUserMessage(scriptText: string, totalWords: number): string {
+  return `Analyze this script (${totalWords} words total) and suggest visual scenes:\n\n${scriptText}`;
 }
 
 // ── Groq (free) ──
@@ -118,41 +94,47 @@ function parseLLMResponse(
 async function analyzeWithGroq(
   scriptText: string,
 ): Promise<{ scenes: SceneSuggestion[]; method: "groq"; tokens: number }> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("No GROQ_API_KEY");
-
   const words = scriptText.split(/\s+/).filter(Boolean);
+  const userMessage = { role: "user", content: buildUserMessage(scriptText, words.length) };
 
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `Analyze this script (${words.length} words total) and suggest visual scenes:\n\n${scriptText}`,
-        },
-      ],
+  const call = (extraMessages: { role: string; content: string }[]) =>
+    callGroq({
+      system: SYSTEM_PROMPT,
+      messages: [userMessage, ...extraMessages],
       temperature: 0.3,
-      max_tokens: 2048,
-    }),
-  });
+      maxTokens: 2048,
+    });
 
-  if (!res.ok) {
-    const err = await res.text().catch(() => "Groq API error");
-    throw new Error(`Groq ${res.status}: ${err}`);
+  // llama sometimes quotes short excerpts instead of partitioning the whole
+  // script, which makes the first timeline blocks balloon (gaps are absorbed
+  // into the preceding scene). Validate coverage; retry once with a corrective
+  // note, then give up so the route falls back to Claude / rules.
+  const first = await call([]);
+  let tokens = first.tokens;
+  let scenes = parseSceneResponse(first.text, words.length);
+  let cov = checkSceneCoverage(scenes, scriptText);
+  if (!cov.ok) {
+    console.warn(
+      `[analyze-script] Groq scenes cover ${Math.round(cov.coverage * 100)}% of the script (max gap ${cov.maxGap} words) — retrying with corrective note`,
+    );
+    const retry = await call([
+      { role: "assistant", content: first.text },
+      {
+        role: "user",
+        content: `INVALID: your scriptSegments quote short excerpts and skip ${Math.round((1 - cov.coverage) * 100)}% of the script. Every scriptSegment must be a consecutive VERBATIM slice of the script, and together the segments must reproduce the ENTIRE script in order — no gaps, no overlaps, no paraphrasing. Split the full ${words.length}-word script into 3-8 such slices and return the corrected JSON only.`,
+      },
+    ]);
+    tokens += retry.tokens;
+    scenes = parseSceneResponse(retry.text, words.length);
+    cov = checkSceneCoverage(scenes, scriptText);
+    if (!cov.ok) {
+      throw new Error(
+        `Groq scenes cover only ${Math.round(cov.coverage * 100)}% of the script (max gap ${cov.maxGap} words) after retry`,
+      );
+    }
   }
 
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("No content in Groq response");
-
-  return { scenes: parseLLMResponse(content, words.length), method: "groq", tokens: data.usage?.total_tokens ?? 0 };
+  return { scenes, method: "groq", tokens };
 }
 
 // ── Claude (paid, optional) ──
@@ -160,32 +142,19 @@ async function analyzeWithGroq(
 async function analyzeWithClaude(
   scriptText: string,
 ): Promise<{ scenes: SceneSuggestion[]; method: "claude"; tokens: number }> {
-  const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic({ apiKey: anthropicKey() });
-
   const words = scriptText.split(/\s+/).filter(Boolean);
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5",
-    max_tokens: 2048,
+  const { text, tokens } = await callClaude({
     system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `Analyze this script (${words.length} words total) and suggest visual scenes:\n\n${scriptText}`,
-      },
-    ],
+    model: "claude-haiku-4-5",
+    maxTokens: 2048,
+    messages: [{ role: "user", content: buildUserMessage(scriptText, words.length) }],
   });
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("No text response from Claude");
-  }
-
   return {
-    scenes: parseLLMResponse(textBlock.text, words.length),
+    scenes: parseSceneResponse(text, words.length),
     method: "claude",
-    tokens: (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
+    tokens,
   };
 }
 
@@ -437,33 +406,6 @@ function analyzeWithRules(scriptText: string): {
   }
 
   return { scenes, method: "rules" };
-}
-
-// ── Validators ──
-
-function validateCategory(v: unknown): SceneCategory {
-  const valid: SceneCategory[] = ["person", "logo", "chart", "product", "b-roll", "text-overlay"];
-  return valid.includes(v as SceneCategory) ? (v as SceneCategory) : "b-roll";
-}
-
-function validateAnimation(v: unknown): ImageAnimation {
-  const valid: ImageAnimation[] = ["kenBurns", "panLeft", "panRight", "panUp", "panDown", "zoomIn", "zoomOut", "static"];
-  return valid.includes(v as ImageAnimation) ? (v as ImageAnimation) : "kenBurns";
-}
-
-function validatePriority(v: unknown): "essential" | "recommended" | "optional" {
-  const valid = ["essential", "recommended", "optional"];
-  return valid.includes(v as string) ? (v as "essential" | "recommended" | "optional") : "recommended";
-}
-
-function validateWordRange(v: unknown, totalWords: number): [number, number] {
-  if (Array.isArray(v) && v.length === 2 && typeof v[0] === "number" && typeof v[1] === "number") {
-    return [
-      Math.max(0, Math.min(v[0], totalWords - 1)),
-      Math.max(0, Math.min(v[1], totalWords - 1)),
-    ];
-  }
-  return [0, totalWords - 1];
 }
 
 export type AnalysisProvider = "groq" | "claude" | "rules" | "auto";

@@ -199,6 +199,29 @@ export function saveProjectsIndex(projects: ProjectMeta[]): void {
   } catch {}
 }
 
+/** Merge local and server project lists. Server wins on conflict (by modifiedAt). */
+export function mergeProjectLists(
+  local: ProjectMeta[],
+  server: ProjectMeta[]
+): ProjectMeta[] {
+  const map = new Map<string, ProjectMeta>();
+  for (const p of local) map.set(p.id, p);
+  for (const sp of server) {
+    const existing = map.get(sp.id);
+    if (!existing || sp.modifiedAt >= existing.modifiedAt) {
+      // Thumbnails are local-only — keep ours when the server entry wins.
+      // Never let a server-side "Untitled" clobber a real local name
+      // (state syncs used to auto-create projects as Untitled).
+      const name =
+        sp.name === "Untitled" && existing && existing.name !== "Untitled"
+          ? existing.name
+          : sp.name;
+      map.set(sp.id, { ...sp, name, thumb: sp.thumb ?? existing?.thumb });
+    }
+  }
+  return Array.from(map.values());
+}
+
 export function getActiveProjectId(): string | null {
   return localStorage.getItem(ACTIVE_PROJECT_KEY);
 }

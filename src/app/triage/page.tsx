@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Button } from "@/components/Button";
 import { Chip } from "@/components/IconButton";
 import { parseDigest, type ParsedTopic } from "@/lib/triage-parse";
 import { DEFAULT_DELIVERY } from "@/lib/voices";
@@ -53,6 +54,7 @@ export default function TriagePage() {
   const [pickMethod, setPickMethod] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<number | null>(null);
+  const [parsedEmpty, setParsedEmpty] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -67,6 +69,8 @@ export default function TriagePage() {
 
   const parse = () => {
     const topics = parseDigest(raw);
+    setParsedEmpty(raw.trim().length > 0 && topics.length === 0);
+    setCreated(null); // a fresh slate may be created again
     setRows(
       topics.map((t, i) => ({
         ...t,
@@ -126,7 +130,13 @@ export default function TriagePage() {
     lucas: "/avatars/lucas.png",
   };
   const FEMALE_AVATAR = "/avatars/claire.png";
-  const MALE_AVATARS = ["/avatars/nathan.png", "/avatars/ethan.png"];
+  const MALE_AVATARS = [
+    "/avatars/nathan.png",
+    "/avatars/ethan.png",
+    "/avatars/malik.png",
+    "/avatars/daniel.png",
+    "/avatars/lucas.png",
+  ];
   const avatarFor = (r: Row, maleSeq: number): string => {
     const first = (r.character ?? "").trim().split(/\s+/)[0]?.toLowerCase();
     if (first && AVATAR_BY_NAME[first]) return AVATAR_BY_NAME[first];
@@ -181,6 +191,9 @@ export default function TriagePage() {
 
   // Create one project per selected topic, then auto-log the slate for novelty.
   const createProjects = () => {
+    // Guard against double-fire: a second click while creating (or re-clicking
+    // after success) would duplicate the whole slate.
+    if (creating || created !== null) return;
     const selected = rows.filter((r) => r.selected);
     if (selected.length === 0) return;
     setCreating(true);
@@ -204,6 +217,7 @@ export default function TriagePage() {
   };
 
   const pickWithClaude = async () => {
+    if (picking) return;
     setPicking(true);
     setCreated(null);
     try {
@@ -276,16 +290,13 @@ export default function TriagePage() {
           className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-600 resize-y focus-visible:ring-2 focus-visible:ring-blue-500 font-mono"
         />
         <div className="flex items-center gap-3 mt-2 mb-3">
-          <Chip onClick={parse} className="px-3 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-500">
+          <Button size="sm" onClick={parse}>
             Parse digest
-          </Chip>
+          </Button>
           {rows.length > 0 && (
-            <Chip
-              onClick={pickWithClaude}
-              className="px-3 py-1.5 text-xs rounded bg-violet-600 text-white hover:bg-violet-500"
-            >
+            <Button size="sm" variant="ghost" onClick={pickWithClaude} disabled={picking}>
               {picking ? "Picking…" : `Pick ${TARGET_PICKS} (AI)`}
-            </Chip>
+            </Button>
           )}
           {rows.length > 0 && (
             <span className="text-mini text-zinc-500">
@@ -382,17 +393,23 @@ export default function TriagePage() {
         </div>
 
         {rows.length === 0 && (
-          <p className="text-mini text-zinc-600 text-center py-8">No topics yet — paste the digest and hit “Parse digest”.</p>
+          <p className="text-mini text-zinc-600 text-center py-8">
+            {parsedEmpty
+              ? "Found 0 topics in the pasted text — check the digest format (expects the PERSONA SHORTS production digest)."
+              : "No topics yet — paste the digest and hit “Parse digest”."}
+          </p>
         )}
 
         {rows.length > 0 && (
           <div className="mt-6 flex items-center gap-3">
-            <Chip
+            <Button
+              size="sm"
+              variant="primary"
               onClick={createProjects}
-              className={`px-3 py-1.5 text-xs rounded text-white ${selectedCount === 0 || creating ? "bg-zinc-700 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500"}`}
+              disabled={creating || created !== null || selectedCount === 0}
             >
               {creating ? "Creating…" : `Create ${selectedCount} project${selectedCount === 1 ? "" : "s"} →`}
-            </Chip>
+            </Button>
             {created !== null && (
               <span className="text-mini text-emerald-400">
                 Created {created} · logged for novelty · <Link href="/" className="underline hover:text-emerald-300">open Editor →</Link>

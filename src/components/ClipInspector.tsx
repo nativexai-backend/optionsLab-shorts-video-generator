@@ -189,7 +189,7 @@ export const ClipInspector: React.FC<Props> = ({
             )}
             <button
               onClick={() => onDelete(index)}
-              className="px-2 py-1 text-mini text-rose-400 hover:text-white border border-zinc-700 hover:bg-rose-600 rounded transition-colors"
+              className="px-2 py-1 text-mini text-red-400 hover:text-white border border-zinc-700 hover:bg-red-600 rounded transition-colors"
             >
               Delete
             </button>

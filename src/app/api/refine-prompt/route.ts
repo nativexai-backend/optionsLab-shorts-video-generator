@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropicKey } from "@/lib/anthropic";
+import { callGroq, callClaude } from "@/lib/llm";
 import { recordUsage } from "@/lib/usage-storage";
 
 // One-shot prompt refinement: takes a scene's existing image prompt and
@@ -47,57 +48,26 @@ function buildUserMessage(body: {
 }
 
 async function refineWithGroq(userMessage: string): Promise<{ text: string; tokens: number }> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("No GROQ_API_KEY");
-
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: REFINE_SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      temperature: 0.85,
-      max_tokens: 300,
-    }),
+  const { text, tokens } = await callGroq({
+    system: REFINE_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userMessage }],
+    temperature: 0.85,
+    maxTokens: 300,
   });
-
-  if (!res.ok) {
-    const err = await res.text().catch(() => "Groq API error");
-    throw new Error(`Groq ${res.status}: ${err}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("No content in Groq response");
-  return { text: content, tokens: data.usage?.total_tokens ?? 0 };
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("No content in Groq response");
+  return { text: trimmed, tokens };
 }
 
 async function refineWithClaude(userMessage: string): Promise<{ text: string; tokens: number }> {
-  const Anthropic = (await import("@anthropic-ai/sdk")).default;
-  const client = new Anthropic({ apiKey: anthropicKey() });
-
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5",
-    max_tokens: 300,
-    temperature: 0.85,
+  const { text, tokens } = await callClaude({
     system: REFINE_SYSTEM_PROMPT,
+    model: "claude-haiku-4-5",
+    maxTokens: 300,
+    temperature: 0.85,
     messages: [{ role: "user", content: userMessage }],
   });
-
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("No text response from Claude");
-  }
-  return {
-    text: textBlock.text.trim(),
-    tokens: (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
-  };
+  return { text: text.trim(), tokens };
 }
 
 export async function POST(req: NextRequest) {

@@ -17,6 +17,12 @@
   --gradient-brand: linear-gradient(135deg, #2563eb, #7c3aed);
 }
 
+/* z-index scale — keep every fixed overlay on one of these rungs:
+     z-50    modal overlays (the shared Modal component)
+     z-[60]  toasts, status pills, render-progress card — above modal dims
+     z-[70]  drag ghosts (LibraryModal → timeline) — above everything
+   In-flow stacking inside components (thumbnails, handles…) stays below 50. */
+
 body {
   background: var(--background);
   color: var(--foreground);

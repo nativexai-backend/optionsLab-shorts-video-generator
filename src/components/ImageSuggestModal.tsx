@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { IconButton, Chip } from "./IconButton";
+import { Modal } from "./Modal";
 import type { SceneSuggestion } from "../remotion/types";
 import type { LibraryImage } from "../lib/library-types";
 import { tokenize } from "../lib/library-types";
@@ -98,13 +99,6 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, scene.id]);
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
-
   const pickLibrary = useCallback((img: LibraryImage) => {
     onPick(img);
     showToast("Image added to scene", "success");
@@ -143,11 +137,13 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div
-        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="xl"
+      label={`Find an image · Shot ${index + 1}`}
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+    >
         {/* Header */}
         <div className="flex items-start gap-3 p-4 border-b border-zinc-800">
           <div className="flex-1 min-w-0">
@@ -213,14 +209,14 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
 
             {matches.length > 0 && (
               <>
-                <p className="text-micro text-green-400/80 mb-1.5">From your library ({matches.length})</p>
+                <p className="text-micro text-emerald-400/80 mb-1.5">From your library ({matches.length})</p>
                 <div className="grid grid-cols-6 gap-2 mb-3">
                   {matches.map((img) => (
                     <button
                       key={img.id}
                       onClick={() => pickLibrary(img)}
                       title={img.tags.join(", ")}
-                      className="group relative aspect-[3/4] rounded-md overflow-hidden border border-zinc-700 hover:border-green-500 transition-colors"
+                      className="group relative aspect-[3/4] rounded-md overflow-hidden border border-zinc-700 hover:border-emerald-500 transition-colors"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" />
@@ -279,7 +275,7 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
                       key={img.id}
                       onClick={() => pickLibrary(img)}
                       title={img.tags.join(", ")}
-                      className="aspect-[3/4] rounded-md overflow-hidden border border-zinc-700 hover:border-green-500 transition-colors"
+                      className="aspect-[3/4] rounded-md overflow-hidden border border-zinc-700 hover:border-emerald-500 transition-colors"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={libraryFileUrl(img.id)} alt={img.filename} className="w-full h-full object-cover" loading="lazy" />
@@ -290,7 +286,6 @@ export const ImageSuggestModal: React.FC<Props> = ({ open, onClose, scene, index
             </section>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

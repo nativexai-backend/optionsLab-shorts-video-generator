@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadLibraryFile } from "@/lib/library-storage";
+import { isSafeSegment } from "@/lib/json-file";
 
 const MIME: Record<string, string> = {
   ".png": "image/png",
@@ -16,6 +17,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (!isSafeSegment(id)) {
+    return NextResponse.json({ error: "Invalid image id" }, { status: 400 });
+  }
   const result = await loadLibraryFile(id);
   if (!result) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

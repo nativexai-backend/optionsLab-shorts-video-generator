@@ -7,6 +7,7 @@ import {
 } from "../remotion/types";
 import { AnimatedChart } from "../remotion/AnimatedChart";
 import { Chip } from "./IconButton";
+import { Modal } from "./Modal";
 import { searchTickers, findTicker, type TickerInfo } from "../lib/tickers";
 
 interface Props {
@@ -162,13 +163,6 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [candles]);
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
-
   const spec: ChartSpec | null = candles
     ? {
         ticker: ticker.toUpperCase() || "STOCK",
@@ -236,11 +230,14 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
     onClose();
   }, [spec, targetIndex, onAddChart, showToast, onClose]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 shadow-2xl flex gap-5 max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      label="Stock Chart"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto p-5 flex gap-5"
+    >
         {/* Live preview */}
         <div className="flex-shrink-0">
           <div className="relative rounded-lg overflow-hidden border border-zinc-800 bg-zinc-950" style={{ width: PREVIEW_W, height: PREVIEW_H }}>
@@ -260,7 +257,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
         </div>
 
         {/* Controls */}
-        <div className="w-64 flex flex-col gap-3">
+        <div className="flex-1 min-w-0 flex flex-col gap-3">
           <div>
             <h3 className="text-sm font-medium text-zinc-200">Stock Chart</h3>
             <p className="text-mini text-zinc-500 mt-0.5">Branded chart that draws in as the video plays.</p>
@@ -381,7 +378,6 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };

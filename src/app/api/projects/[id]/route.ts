@@ -7,12 +7,19 @@ import {
   deleteServerProjectDir,
 } from "@/lib/server-storage";
 import type { ProjectMeta } from "@/lib/storage";
+import { isSafeSegment } from "@/lib/json-file";
+
+// The id becomes a directory name on disk — reject anything path-like.
+function badId() {
+  return NextResponse.json({ error: "Invalid project id" }, { status: 400 });
+}
 
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (!isSafeSegment(id)) return badId();
   const projects = await readProjectsIndex();
   const project = projects.find((p) => p.id === id);
   if (!project) {
@@ -27,6 +34,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (!isSafeSegment(id)) return badId();
   const body = await req.json();
 
   const project = await updateProjectsIndex<ProjectMeta>((projects) => {
@@ -60,6 +68,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  if (!isSafeSegment(id)) return badId();
   await updateProjectsIndex((projects) => {
     const idx = projects.findIndex((p) => p.id === id);
     if (idx !== -1) projects.splice(idx, 1);

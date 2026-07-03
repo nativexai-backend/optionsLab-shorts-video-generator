@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { IconButton, Chip } from "./IconButton";
+import { Modal } from "./Modal";
 import type { ApiUsage, UsageApi } from "../lib/usage-storage";
 
 interface Props {
@@ -59,13 +60,6 @@ export const UsageModal: React.FC<Props> = ({ open, onClose }) => {
     return () => { cancelled = true; };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
-
   const days = data?.days ?? [];
   const currentDay = days[dayIndex];
   const rows = useMemo(() => {
@@ -73,112 +67,100 @@ export const UsageModal: React.FC<Props> = ({ open, onClose }) => {
     return view === "all" ? data.projects : currentDay?.projects ?? [];
   }, [data, view, currentDay]);
 
-  if (!open) return null;
-
   const t = data?.totals;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div
-        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col w-[720px] max-w-[92vw] max-h-[82vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-          <h3 className="text-sm font-medium text-zinc-200">API Usage</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 px-2 text-lg leading-none">×</button>
-        </div>
+    <Modal open={open} onClose={onClose} title="API Usage" size="lg" bodyClassName="flex-1 min-h-0 flex flex-col">
+      {/* Overall totals (all-time) — unchanged */}
+      <div className="grid grid-cols-4 gap-2 p-4 pb-2">
+        <TotalCard label="ElevenLabs" sub="characters ≈ credits" value={fmt(t?.elevenlabs.characters)} calls={t?.elevenlabs.calls} accent="text-amber-400" />
+        <TotalCard label="Groq" sub="tokens" value={fmt(t?.groq.tokens)} calls={t?.groq.calls} accent="text-emerald-400" />
+        <TotalCard label="Claude" sub="tokens" value={fmt(t?.claude.tokens)} calls={t?.claude.calls} accent="text-violet-400" />
+        <TotalCard label="Whisper" sub="audio transcribed" value={fmtSeconds(t?.whisper.seconds)} calls={t?.whisper.calls} accent="text-sky-400" />
+      </div>
 
-        {/* Overall totals (all-time) — unchanged */}
-        <div className="grid grid-cols-4 gap-2 p-4 pb-2">
-          <TotalCard label="ElevenLabs" sub="characters ≈ credits" value={fmt(t?.elevenlabs.characters)} calls={t?.elevenlabs.calls} accent="text-amber-400" />
-          <TotalCard label="Groq" sub="tokens" value={fmt(t?.groq.tokens)} calls={t?.groq.calls} accent="text-emerald-400" />
-          <TotalCard label="Claude" sub="tokens" value={fmt(t?.claude.tokens)} calls={t?.claude.calls} accent="text-violet-400" />
-          <TotalCard label="Whisper" sub="audio transcribed" value={fmtSeconds(t?.whisper.seconds)} calls={t?.whisper.calls} accent="text-sky-400" />
-        </div>
-
-        {/* Day pager + view toggle */}
-        <div className="flex items-center justify-between px-4 pt-1 pb-2">
-          {view === "day" ? (
-            <div className="flex items-center gap-1.5">
-              <IconButton
-                onClick={() => setDayIndex((i) => Math.min(days.length - 1, i + 1))}
-                disabled={dayIndex >= days.length - 1}
-                className="w-6 h-6 text-zinc-400 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-transparent"
-                title="Older day"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6" /></svg>
-              </IconButton>
-              <span className="text-xs font-medium text-zinc-200 min-w-[130px] text-center tabular-nums">
-                {data && currentDay ? dayLabel(currentDay.date, data.today) : "—"}
-                {days.length > 1 && <span className="text-zinc-600 ml-1.5 text-micro">{dayIndex + 1}/{days.length}</span>}
-              </span>
-              <IconButton
-                onClick={() => setDayIndex((i) => Math.max(0, i - 1))}
-                disabled={dayIndex <= 0}
-                className="w-6 h-6 text-zinc-400 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-transparent"
-                title="Newer day"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
-              </IconButton>
-            </div>
-          ) : (
-            <span className="text-xs font-medium text-zinc-200">All time</span>
-          )}
-
-          <div className="flex items-center gap-0.5 bg-zinc-800 rounded-md p-0.5">
-            <Chip
-              onClick={() => setView("day")}
-              className={`px-2 py-0.5 text-mini rounded ${view === "day" ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+      {/* Day pager + view toggle */}
+      <div className="flex items-center justify-between px-4 pt-1 pb-2">
+        {view === "day" ? (
+          <div className="flex items-center gap-1.5">
+            <IconButton
+              onClick={() => setDayIndex((i) => Math.min(days.length - 1, i + 1))}
+              disabled={dayIndex >= days.length - 1}
+              className="w-6 h-6 text-zinc-400 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-transparent"
+              title="Older day"
             >
-              By day
-            </Chip>
-            <Chip
-              onClick={() => setView("all")}
-              className={`px-2 py-0.5 text-mini rounded ${view === "all" ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6" /></svg>
+            </IconButton>
+            <span className="text-xs font-medium text-zinc-200 min-w-[130px] text-center tabular-nums">
+              {data && currentDay ? dayLabel(currentDay.date, data.today) : "—"}
+              {days.length > 1 && <span className="text-zinc-600 ml-1.5 text-micro">{dayIndex + 1}/{days.length}</span>}
+            </span>
+            <IconButton
+              onClick={() => setDayIndex((i) => Math.max(0, i - 1))}
+              disabled={dayIndex <= 0}
+              className="w-6 h-6 text-zinc-400 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-transparent"
+              title="Newer day"
             >
-              All time
-            </Chip>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+            </IconButton>
           </div>
-        </div>
+        ) : (
+          <span className="text-xs font-medium text-zinc-200">All time</span>
+        )}
 
-        {/* Per-project breakdown for the selected slice */}
-        <div className="px-4 pb-4 overflow-y-auto">
-          <table className="w-full text-mini">
-            <thead className="text-zinc-500 sticky top-0 bg-zinc-900">
-              <tr className="text-left">
-                <th className="font-medium py-1.5">Project</th>
-                <th className="font-medium py-1.5 text-right">ElevenLabs</th>
-                <th className="font-medium py-1.5 text-right">Groq</th>
-                <th className="font-medium py-1.5 text-right">Claude</th>
-                <th className="font-medium py-1.5 text-right">Whisper</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows === null ? (
-                <tr><td colSpan={5} className="py-6 text-center text-zinc-500">Loading…</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td colSpan={5} className="py-6 text-center text-zinc-500">
-                  {view === "day" ? "No usage on this day." : "No usage recorded yet."}
-                </td></tr>
-              ) : (
-                rows.map((row) => (
-                  <tr key={row.projectId} className="border-t border-zinc-800/60">
-                    <td className="py-1.5 text-zinc-300 truncate max-w-[220px]" title={row.name}>{row.name}</td>
-                    <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmt(row.usage.elevenlabs.characters)}</td>
-                    <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmt(row.usage.groq.tokens)}</td>
-                    <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmt(row.usage.claude.tokens)}</td>
-                    <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmtSeconds(row.usage.whisper.seconds)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-          <p className="text-micro text-zinc-600 mt-3">
-            ElevenLabs characters ≈ credits (current model bills ~1 credit/char). Per-day tracking starts from now — earlier usage shows under All time only.
-          </p>
+        <div className="flex items-center gap-0.5 bg-zinc-800 rounded-md p-0.5">
+          <Chip
+            onClick={() => setView("day")}
+            className={`px-2 py-0.5 text-mini rounded ${view === "day" ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+          >
+            By day
+          </Chip>
+          <Chip
+            onClick={() => setView("all")}
+            className={`px-2 py-0.5 text-mini rounded ${view === "all" ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
+          >
+            All time
+          </Chip>
         </div>
       </div>
-    </div>
+
+      {/* Per-project breakdown for the selected slice */}
+      <div className="px-4 pb-4 overflow-y-auto">
+        <table className="w-full text-mini">
+          <thead className="text-zinc-500 sticky top-0 bg-zinc-900">
+            <tr className="text-left">
+              <th className="font-medium py-1.5">Project</th>
+              <th className="font-medium py-1.5 text-right">ElevenLabs</th>
+              <th className="font-medium py-1.5 text-right">Groq</th>
+              <th className="font-medium py-1.5 text-right">Claude</th>
+              <th className="font-medium py-1.5 text-right">Whisper</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows === null ? (
+              <tr><td colSpan={5} className="py-6 text-center text-zinc-500">Loading…</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={5} className="py-6 text-center text-zinc-500">
+                {view === "day" ? "No usage on this day." : "No usage recorded yet."}
+              </td></tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.projectId} className="border-t border-zinc-800/60">
+                  <td className="py-1.5 text-zinc-300 truncate max-w-[220px]" title={row.name}>{row.name}</td>
+                  <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmt(row.usage.elevenlabs.characters)}</td>
+                  <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmt(row.usage.groq.tokens)}</td>
+                  <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmt(row.usage.claude.tokens)}</td>
+                  <td className="py-1.5 text-right text-zinc-400 tabular-nums">{fmtSeconds(row.usage.whisper.seconds)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+        <p className="text-micro text-zinc-600 mt-3">
+          ElevenLabs characters ≈ credits (current model bills ~1 credit/char). Per-day tracking starts from now — earlier usage shows under All time only.
+        </p>
+      </div>
+    </Modal>
   );
 };
 

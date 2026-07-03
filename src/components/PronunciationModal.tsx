@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { IconButton } from "./IconButton";
+import { Modal } from "./Modal";
 import type { PronunciationEntry } from "../lib/pronunciation";
 
 interface Props {
@@ -23,13 +24,6 @@ export const PronunciationModal: React.FC<Props> = ({ open, onClose, showToast }
       .catch(() => { if (!cancelled) setEntries([]); });
     return () => { cancelled = true; };
   }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [open, onClose]);
 
   const update = useCallback((i: number, field: "term" | "say", value: string) => {
     setEntries((prev) => (prev ? prev.map((e, idx) => (idx === i ? { ...e, [field]: value } : e)) : prev));
@@ -64,60 +58,14 @@ export const PronunciationModal: React.FC<Props> = ({ open, onClose, showToast }
     }
   }, [entries, showToast, onClose]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col w-[520px] max-w-[92vw] max-h-[82vh]" onClick={(e) => e.stopPropagation()}>
-        <div className="p-4 border-b border-zinc-800">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-zinc-200">Pronunciations</h3>
-            <IconButton onClick={onClose} className="text-zinc-500 hover:text-zinc-200 px-2 text-lg leading-none">×</IconButton>
-          </div>
-          <p className="text-mini text-zinc-500 mt-1">
-            Tell the voice how to say tricky terms. Applies to the voiceover only — your script and captions keep the original spelling. Shared across all projects.
-          </p>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-1.5 text-micro uppercase tracking-wider text-zinc-500 font-medium px-1">
-            <span>Term (as written)</span>
-            <span>Say it like</span>
-            <span />
-          </div>
-          {entries === null ? (
-            <p className="text-xs text-zinc-500 p-4 text-center">Loading…</p>
-          ) : (
-            <div className="space-y-1.5">
-              {entries.map((e, i) => (
-                <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
-                  <input
-                    value={e.term}
-                    onChange={(ev) => update(i, "term", ev.target.value)}
-                    placeholder="G7"
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500"
-                  />
-                  <input
-                    value={e.say}
-                    onChange={(ev) => update(i, "say", ev.target.value)}
-                    placeholder="G seven"
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500"
-                  />
-                  <IconButton
-                    onClick={() => remove(i)}
-                    aria-label="Remove"
-                    className="w-7 h-7 text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
-                  >
-                    <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
-                  </IconButton>
-                </div>
-              ))}
-              <button onClick={add} className="text-mini text-blue-400 hover:text-blue-300 transition-colors mt-1">+ Add term</button>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 border-t border-zinc-800 flex justify-end gap-2">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Pronunciations"
+      size="md"
+      footer={
+        <>
           <button onClick={onClose} className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors">Cancel</button>
           <button
             onClick={save}
@@ -126,8 +74,49 @@ export const PronunciationModal: React.FC<Props> = ({ open, onClose, showToast }
           >
             {saving ? "Saving…" : "Save"}
           </button>
+        </>
+      }
+    >
+      <div className="p-4">
+        <p className="text-mini text-zinc-500 mb-3">
+          Tell the voice how to say tricky terms. Applies to the voiceover only — your script and captions keep the original spelling. Shared across all projects.
+        </p>
+        <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-1.5 text-micro uppercase tracking-wider text-zinc-500 font-medium px-1">
+          <span>Term (as written)</span>
+          <span>Say it like</span>
+          <span />
         </div>
+        {entries === null ? (
+          <p className="text-xs text-zinc-500 p-4 text-center">Loading…</p>
+        ) : (
+          <div className="space-y-1.5">
+            {entries.map((e, i) => (
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                <input
+                  value={e.term}
+                  onChange={(ev) => update(i, "term", ev.target.value)}
+                  placeholder="G7"
+                  className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500"
+                />
+                <input
+                  value={e.say}
+                  onChange={(ev) => update(i, "say", ev.target.value)}
+                  placeholder="G seven"
+                  className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-blue-500"
+                />
+                <IconButton
+                  onClick={() => remove(i)}
+                  aria-label="Remove"
+                  className="w-7 h-7 text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
+                >
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="2" x2="8" y2="8" /><line x1="8" y1="2" x2="2" y2="8" /></svg>
+                </IconButton>
+              </div>
+            ))}
+            <button onClick={add} className="text-mini text-blue-400 hover:text-blue-300 transition-colors mt-1">+ Add term</button>
+          </div>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 };

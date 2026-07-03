@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Chip } from "./IconButton";
+import { Modal } from "./Modal";
+import { Spinner } from "./Spinner";
 import { VideoProps } from "../remotion/types";
 
 interface Props {
@@ -86,12 +88,29 @@ const RenderButtonInner: React.FC<Props> = ({
   const rendering = job !== null;
   const ready = !!audioFile;
 
+  // Slots that would render as black gaps: no chart and no real image file
+  // (zero-byte placeholders come from "Add All to Timeline" before images land)
+  const emptySlotCount = videoProps.images.filter(
+    (img, i) => !img.chart && (!imageFiles[i] || imageFiles[i].size === 0)
+  ).length;
+
   const clearJob = useCallback(() => {
     setJob(null);
     setProgress(0);
     localStorage.removeItem(ACTIVE_JOB_KEY);
     downloadingRef.current = false;
   }, []);
+
+  const cancelRender = useCallback(async () => {
+    if (!job) return;
+    try {
+      await fetch(`/api/render?job=${job.id}`, { method: "DELETE" });
+    } catch {
+      // Job may already be gone — clearing locally either way
+    }
+    clearJob();
+    showToast("Export cancelled", "success");
+  }, [job, clearJob, showToast]);
 
   const downloadResult = useCallback(async (j: StoredJob) => {
     if (downloadingRef.current) return;
@@ -267,7 +286,7 @@ const RenderButtonInner: React.FC<Props> = ({
       >
         {rendering ? (
           <>
-            <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+            <Spinner className="h-3.5 w-3.5" />
             {jobStatus === "rendering" ? `Exporting… ${pct}%` : `Exporting… ${elapsed}s`}
           </>
         ) : (
@@ -284,9 +303,9 @@ const RenderButtonInner: React.FC<Props> = ({
 
       {/* Render progress card */}
       {rendering && (
-        <div className="fixed bottom-6 right-6 z-50 bg-zinc-900 border border-zinc-700 rounded-xl p-4 w-72 shadow-2xl">
+        <div className="fixed bottom-6 right-6 z-[60] bg-zinc-900 border border-zinc-700 rounded-xl p-4 w-72 shadow-2xl">
           <div className="flex items-center gap-3">
-            <svg className="animate-spin h-5 w-5 text-blue-400 flex-shrink-0" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+            <Spinner className="h-5 w-5 text-blue-400 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm text-zinc-200 font-medium">{stageLabel}</p>
               <p className="text-mini text-zinc-500 tabular-nums">{elapsed}s elapsed</p>
@@ -301,69 +320,85 @@ const RenderButtonInner: React.FC<Props> = ({
           <p className="text-mini text-zinc-500 mt-2.5 leading-snug">
             The render keeps going on the server — your download starts automatically when it&apos;s done, even if you reload this page.
           </p>
+          <button
+            onClick={cancelRender}
+            className="mt-2 text-mini text-zinc-500 hover:text-red-400 transition-colors"
+          >
+            Cancel export
+          </button>
         </div>
       )}
 
-      {showNameModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowNameModal(false)}>
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-80 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-medium text-zinc-200 mb-3">Export Video</h3>
-            <label className="text-mini text-zinc-500 mb-1 block">File name</label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={exportName}
-              onChange={(e) => setExportName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleExport(); if (e.key === "Escape") setShowNameModal(false); }}
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 mb-3"
-              placeholder="my-video"
-            />
-            <label className="text-mini text-zinc-500 mb-1.5 block">Resolution</label>
-            <div className="flex gap-2 mb-3">
-              <Chip
-                onClick={() => setResolution("1.5")}
-                className={`flex-1 px-2 py-2 rounded-lg border text-xs ${
-                  resolution === "1.5"
-                    ? "border-blue-500 bg-blue-500/10 text-blue-300"
-                    : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
-                }`}
-              >
-                <span className="block font-medium">1080 × 1920</span>
-                <span className="block text-micro opacity-70">Best quality (recommended)</span>
-              </Chip>
-              <Chip
-                onClick={() => setResolution("1")}
-                className={`flex-1 px-2 py-2 rounded-lg border text-xs ${
-                  resolution === "1"
-                    ? "border-blue-500 bg-blue-500/10 text-blue-300"
-                    : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
-                }`}
-              >
-                <span className="block font-medium">720 × 1280</span>
-                <span className="block text-micro opacity-70">Faster export</span>
-              </Chip>
-            </div>
-            <p className="text-mini text-zinc-500 mb-4">
-              ≈ {Math.round(videoProps.durationInSeconds)}s video · typical export takes 1–3 minutes
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setShowNameModal(false)}
-                className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleExport}
-                className="px-4 py-1.5 text-xs font-medium rounded-md text-white transition-colors"
-                style={{ background: "var(--gradient-brand)" }}
-              >
-                Export MP4
-              </button>
-            </div>
+      <Modal
+        open={showNameModal}
+        onClose={() => setShowNameModal(false)}
+        title="Export Video"
+        size="sm"
+        footer={
+          <>
+            <button
+              onClick={() => setShowNameModal(false)}
+              className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleExport}
+              className="px-4 py-1.5 text-xs font-medium rounded-md text-white transition-colors"
+              style={{ background: "var(--gradient-brand)" }}
+            >
+              Export MP4
+            </button>
+          </>
+        }
+      >
+        <div className="p-4">
+          <label className="text-mini text-zinc-500 mb-1 block">File name</label>
+          <input
+            ref={inputRef}
+            type="text"
+            value={exportName}
+            onChange={(e) => setExportName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleExport(); }}
+            className="w-full px-3 py-2 bg-zinc-800 border border-zinc-600 rounded-lg text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 mb-3"
+            placeholder="my-video"
+          />
+          <label className="text-mini text-zinc-500 mb-1.5 block">Resolution</label>
+          <div className="flex gap-2 mb-3">
+            <Chip
+              onClick={() => setResolution("1.5")}
+              className={`flex-1 px-2 py-2 rounded-lg border text-xs ${
+                resolution === "1.5"
+                  ? "border-blue-500 bg-blue-500/10 text-blue-300"
+                  : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
+              }`}
+            >
+              <span className="block font-medium">1080 × 1920</span>
+              <span className="block text-micro opacity-70">Best quality (recommended)</span>
+            </Chip>
+            <Chip
+              onClick={() => setResolution("1")}
+              className={`flex-1 px-2 py-2 rounded-lg border text-xs ${
+                resolution === "1"
+                  ? "border-blue-500 bg-blue-500/10 text-blue-300"
+                  : "border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-500"
+              }`}
+            >
+              <span className="block font-medium">720 × 1280</span>
+              <span className="block text-micro opacity-70">Faster export</span>
+            </Chip>
           </div>
+          {emptySlotCount > 0 && (
+            <p className="text-mini text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-md px-2.5 py-1.5 mb-3 leading-snug">
+              {emptySlotCount} of {videoProps.images.length} timeline slot{videoProps.images.length === 1 ? "" : "s"} ha{emptySlotCount === 1 ? "s" : "ve"} no
+              image yet — they&apos;ll render as black gaps. Fill them from the shot list or library first.
+            </p>
+          )}
+          <p className="text-mini text-zinc-500">
+            ≈ {Math.round(videoProps.durationInSeconds)}s video · typical export takes 1–3 minutes
+          </p>
         </div>
-      )}
+      </Modal>
     </>
   );
 };

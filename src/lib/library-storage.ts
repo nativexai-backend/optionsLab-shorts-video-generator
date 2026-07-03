@@ -3,6 +3,13 @@ import fs from "fs/promises";
 import crypto from "crypto";
 import type { LibraryImage, LibraryQuery } from "./library-types";
 import { rankLibrary } from "./library-types";
+import {
+  assertSafeSegment,
+  createLock,
+  readJsonFile,
+  safeExtension,
+  writeJsonFileAtomic,
+} from "./json-file";
 
 export const LIBRARY_DIR =
   process.env.LIBRARY_DIR ?? path.join(process.cwd(), "data/library");
@@ -15,32 +22,24 @@ async function ensureDir(dir: string) {
 }
 
 export async function readLibraryIndex(): Promise<LibraryImage[]> {
-  try {
-    const raw = await fs.readFile(INDEX_PATH, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+  return readJsonFile<LibraryImage[]>(INDEX_PATH, []);
 }
 
 async function writeLibraryIndex(images: LibraryImage[]): Promise<void> {
-  await ensureDir(LIBRARY_DIR);
-  await fs.writeFile(INDEX_PATH, JSON.stringify(images, null, 2));
+  await writeJsonFileAtomic(INDEX_PATH, images);
 }
 
 // Serialize index mutations so concurrent drops don't lose each other.
-let indexLock: Promise<unknown> = Promise.resolve();
+const withIndexLock = createLock();
 async function updateIndex<T>(
   mutator: (images: LibraryImage[]) => T | Promise<T>
 ): Promise<T> {
-  const run = indexLock.then(async () => {
+  return withIndexLock(async () => {
     const images = await readLibraryIndex();
     const result = await mutator(images);
     await writeLibraryIndex(images);
     return result;
   });
-  indexLock = run.catch(() => {});
-  return run;
 }
 
 function hashBuffer(buffer: Buffer): string {
@@ -49,6 +48,7 @@ function hashBuffer(buffer: Buffer): string {
 
 export interface NewImageMeta {
   filename: string;
+  mimeType?: string; // preferred source for the stored extension
   tags?: string[];
   description?: string;
   category?: string;
@@ -66,7 +66,9 @@ export async function saveLibraryImage(
   meta: NewImageMeta
 ): Promise<LibraryImage> {
   const id = hashBuffer(buffer);
-  const ext = (path.extname(meta.filename) || ".png").toLowerCase();
+  // Extension from the MIME allowlist (or a sanitized filename ext) — never
+  // raw from the uploaded name.
+  const ext = safeExtension(meta.mimeType, meta.filename, ".png");
 
   await ensureDir(FILES_DIR);
   const filePath = path.join(FILES_DIR, `${id}${ext}`);
@@ -132,6 +134,7 @@ export async function deleteLibraryImage(id: string): Promise<void> {
 export async function loadLibraryFile(
   id: string
 ): Promise<{ buffer: Buffer; ext: string } | null> {
+  assertSafeSegment(id);
   try {
     const entries = await fs.readdir(FILES_DIR);
     const match = entries.find((e) => e.startsWith(id + "."));

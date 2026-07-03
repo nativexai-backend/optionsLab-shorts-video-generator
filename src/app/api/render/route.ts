@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, selectComposition, makeCancelSignal } from "@remotion/renderer";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -13,12 +13,13 @@ import { VIDEO_FPS, VIDEO_WIDTH, VIDEO_HEIGHT } from "@/remotion/types";
 
 interface RenderJob {
   id: string;
-  status: "bundling" | "rendering" | "done" | "error";
+  status: "bundling" | "rendering" | "done" | "error" | "cancelled";
   progress: number; // 0..1, meaningful while rendering
   outputPath?: string;
   mediaDir?: string;
   error?: string;
   createdAt: number;
+  cancel?: () => void; // aborts an in-flight renderMedia
 }
 
 const globalStore = globalThis as unknown as { __vidRenderJobs?: Map<string, RenderJob> };
@@ -203,8 +204,18 @@ async function runRenderJob(job: RenderJob, inputs: RenderInputs) {
     composition.width = VIDEO_WIDTH;
     composition.height = VIDEO_HEIGHT;
 
+    // Cancelled during bundling — stop before spending render time
+    if (job.status === "cancelled") {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(mediaDir, { recursive: true, force: true });
+      return;
+    }
+
     const outputPath = path.join(tmpDir, "output.mp4");
     job.status = "rendering";
+
+    const { cancelSignal, cancel } = makeCancelSignal();
+    job.cancel = cancel;
 
     await renderMedia({
       composition,
@@ -213,6 +224,7 @@ async function runRenderJob(job: RenderJob, inputs: RenderInputs) {
       outputLocation: outputPath,
       inputProps: videoProps,
       scale,
+      cancelSignal,
       onProgress: ({ progress }) => {
         job.progress = progress;
       },
@@ -229,6 +241,8 @@ async function runRenderJob(job: RenderJob, inputs: RenderInputs) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
       if (job.mediaDir) fs.rmSync(job.mediaDir, { recursive: true, force: true });
     } catch {}
+    // A cancelled render rejects — keep the "cancelled" status, not "error"
+    if (job.status === "cancelled") return;
     console.error("Render error:", error);
     job.status = "error";
     job.error = error instanceof Error ? error.message : "Render failed";
@@ -303,7 +317,28 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// Cancel an in-flight render and clean up its files
+export async function DELETE(req: NextRequest) {
+  const id = req.nextUrl.searchParams.get("job");
+  if (!id) {
+    return NextResponse.json({ error: "Missing job parameter" }, { status: 400 });
+  }
+  const job = jobs.get(id);
+  if (!job) {
+    return NextResponse.json({ error: "Unknown job" }, { status: 404 });
+  }
+  job.status = "cancelled";
+  job.cancel?.();
+  try {
+    if (job.outputPath) fs.rmSync(path.dirname(job.outputPath), { recursive: true, force: true });
+    if (job.mediaDir) fs.rmSync(job.mediaDir, { recursive: true, force: true });
+  } catch {}
+  jobs.delete(id);
+  return NextResponse.json({ ok: true });
+}
+
 export async function GET(req: NextRequest) {
+  purgeStaleJobs(); // GET is polled constantly — housekeeping rides along
   const id = req.nextUrl.searchParams.get("job");
   if (!id) {
     return NextResponse.json({ error: "Missing job parameter" }, { status: 400 });

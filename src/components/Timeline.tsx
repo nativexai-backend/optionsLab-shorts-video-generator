@@ -17,6 +17,7 @@ interface Props {
   durationInSeconds: number;
   selectedImageIndex: number | null;
   onSelectImage: (index: number) => void;
+  onDeselectImage: () => void;
   onImageTimingChange: (index: number, startTime: number, endTime: number) => void;
   onImageTrackChange: (index: number, track: number) => void;
   onDeleteImage: (index: number) => void;
@@ -46,6 +47,7 @@ export const Timeline: React.FC<Props> = ({
   durationInSeconds,
   selectedImageIndex,
   onSelectImage,
+  onDeselectImage,
   onImageTimingChange,
   onImageTrackChange,
   onDeleteImage,
@@ -82,6 +84,43 @@ export const Timeline: React.FC<Props> = ({
   const handleZoomChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setZoomLevel(Number(e.target.value));
   }, []);
+
+  // ⌘/Ctrl + wheel zooms, anchored at the pointer so the moment under the
+  // cursor stays put. Native listener because React wheel events are passive.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoomLevel((prev) => {
+        const next = Math.max(0, Math.min(100, prev - e.deltaY * 0.5));
+        if (next !== prev) {
+          const prevPx = minPxPerSec + (prev / 100) * (maxPxPerSec - minPxPerSec);
+          const nextPx = minPxPerSec + (next / 100) * (maxPxPerSec - minPxPerSec);
+          const rect = el.getBoundingClientRect();
+          const offsetInView = e.clientX - rect.left;
+          const timeAtCursor = (el.scrollLeft + offsetInView) / prevPx;
+          requestAnimationFrame(() => {
+            el.scrollLeft = timeAtCursor * nextPx - offsetInView;
+          });
+        }
+        return next;
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [minPxPerSec, maxPxPerSec]);
+
+  // Click anywhere on the waveform (a much bigger target than the ruler) to seek
+  const handleWaveformClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const timeSec = Math.max(0, (e.clientX - rect.left) / pxPerSecond);
+      playerRef.current?.seekTo(Math.round(timeSec * VIDEO_FPS));
+    },
+    [pxPerSecond, playerRef]
+  );
   const bucketCount = Math.max(1, Math.floor(totalWidth / 3));
   const peaks = useAudioPeaks(audioFile, bucketCount);
 
@@ -151,8 +190,18 @@ export const Timeline: React.FC<Props> = ({
             max={100}
             value={zoomLevel}
             onChange={handleZoomChange}
+            title="Zoom (⌘+scroll on the timeline also zooms)"
             className="w-20 h-1 accent-zinc-500"
           />
+          {zoomLevel > 0 && (
+            <button
+              onClick={() => setZoomLevel(0)}
+              className="text-micro text-zinc-500 hover:text-zinc-300 transition-colors"
+              title="Reset zoom to fit"
+            >
+              Fit
+            </button>
+          )}
           <span className="text-micro text-zinc-500 tabular-nums w-16 text-right">
             {formatTime(currentTime)} / {formatTime(durationInSeconds)}
           </span>
@@ -173,7 +222,7 @@ export const Timeline: React.FC<Props> = ({
             </div>
           ))}
           <div className="flex items-center justify-end pr-2 text-zinc-600" style={{ height: ADD_TRACK_HEIGHT }}>
-            <span className="text-[9px]">+ layer</span>
+            <span className="text-micro">+ layer</span>
           </div>
         </div>
 
@@ -190,8 +239,12 @@ export const Timeline: React.FC<Props> = ({
               playerRef={playerRef}
             />
 
-            {/* Waveform */}
-            <div style={{ height: WAVEFORM_HEIGHT }}>
+            {/* Waveform (click to seek) */}
+            <div
+              style={{ height: WAVEFORM_HEIGHT }}
+              className="cursor-pointer"
+              onClick={handleWaveformClick}
+            >
               <TimelineWaveform
                 peaks={peaks}
                 width={totalWidth}
@@ -206,6 +259,7 @@ export const Timeline: React.FC<Props> = ({
               pxPerSecond={pxPerSecond}
               selectedIndex={selectedImageIndex}
               onSelect={onSelectImage}
+              onDeselect={onDeselectImage}
               onTimingChange={onImageTimingChange}
               onTrackChange={onImageTrackChange}
               onDelete={onDeleteImage}
