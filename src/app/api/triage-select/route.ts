@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropicKey } from "@/lib/anthropic";
-import { callGroq, callClaude, extractJson } from "@/lib/llm";
+import { callGroq, callClaude, errorSummary, extractJson } from "@/lib/llm";
 import { recordUsage } from "@/lib/usage-storage";
 
 // Candidate topic as sent from the client (a trimmed ParsedTopic).
@@ -131,21 +131,22 @@ export async function POST(req: NextRequest) {
   const key = anthropicKey();
   const provider = body.provider === "groq" || body.provider === "claude" ? body.provider : "auto";
 
-  // Order the providers to try. Auto prefers Groq (free) then Claude.
+  // Order the providers to try. Auto prefers Claude (quality) then Groq.
   const attempts: Array<"groq" | "claude"> = [];
   if (provider === "groq") {
     if (hasGroq) attempts.push("groq");
   } else if (provider === "claude") {
     if (key) attempts.push("claude");
   } else {
-    if (hasGroq) attempts.push("groq");
     if (key) attempts.push("claude");
+    if (hasGroq) attempts.push("groq");
   }
 
   // Triage isn't tied to a project — usage lands in the unassigned bucket.
   const track = (method: "groq" | "claude", tokens: number) =>
     recordUsage(undefined, method, { tokens }).catch(() => {});
 
+  const failures: string[] = [];
   for (const method of attempts) {
     try {
       const { picks, skipped, tokens } =
@@ -153,12 +154,21 @@ export async function POST(req: NextRequest) {
           ? await selectWithGroq(system, user, topics, target)
           : await selectWithClaude(system, user, topics, target);
       track(method, tokens);
-      return NextResponse.json({ method, picks, skipped });
+      return NextResponse.json({
+        method,
+        picks,
+        skipped,
+        ...(failures.length ? { note: failures.join(" · ") } : {}),
+      });
     } catch (err) {
       // Try the next provider; if all fail we fall through to score.
       console.error(`[triage-select] ${method} failed:`, err);
+      failures.push(`${method === "claude" ? "Claude" : "Groq"} failed (${errorSummary(err)})`);
     }
   }
 
-  return NextResponse.json(byScore());
+  return NextResponse.json({
+    ...byScore(),
+    ...(failures.length ? { note: failures.join(" · ") } : {}),
+  });
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SceneSuggestion, ImageAnimation, SceneCategory } from "@/remotion/types";
 import { anthropicKey } from "@/lib/anthropic";
-import { callGroq, callClaude } from "@/lib/llm";
+import { callGroq, callClaude, errorSummary } from "@/lib/llm";
 import { parseSceneResponse } from "@/lib/scene-parse";
 import { checkSceneCoverage } from "@/lib/scene-coverage";
 import { recordUsage } from "@/lib/usage-storage";
@@ -437,77 +437,47 @@ export async function POST(req: NextRequest) {
   const track = (method: "groq" | "claude", tokens: number) =>
     recordUsage(projectId, method, { tokens }).catch(() => {});
 
-  // Direct provider request
-  if (provider === "groq" && process.env.GROQ_API_KEY) {
-    try {
-      const result = await analyzeWithGroq(scriptText);
-      track("groq", result.tokens);
-      return NextResponse.json({ ...result, available });
-    } catch (err) {
-      console.error("Groq analysis failed:", err);
-      // Resolve to Claude (then rules) instead of failing the request.
-      if (anthropicKey()) {
-        try {
-          const result = await analyzeWithClaude(scriptText);
-          track("claude", result.tokens);
-          return NextResponse.json({ ...result, available });
-        } catch (claudeErr) {
-          console.error("Claude fallback after Groq failed:", claudeErr);
-        }
-      }
-      const result = analyzeWithRules(scriptText);
-      return NextResponse.json({ ...result, available });
-    }
-  }
-
-  if (provider === "claude" && anthropicKey()) {
-    try {
-      const result = await analyzeWithClaude(scriptText);
-      track("claude", result.tokens);
-      return NextResponse.json({ ...result, available });
-    } catch (err) {
-      console.error("Claude analysis failed:", err);
-      // Resolve to Groq (then rules) instead of failing the request.
-      if (process.env.GROQ_API_KEY) {
-        try {
-          const result = await analyzeWithGroq(scriptText);
-          track("groq", result.tokens);
-          return NextResponse.json({ ...result, available });
-        } catch (groqErr) {
-          console.error("Groq fallback after Claude failed:", groqErr);
-        }
-      }
-      const result = analyzeWithRules(scriptText);
-      return NextResponse.json({ ...result, available });
-    }
-  }
-
   if (provider === "rules") {
     const result = analyzeWithRules(scriptText);
     return NextResponse.json({ ...result, available });
   }
 
-  // Auto: Groq → Claude → Rules
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const result = await analyzeWithGroq(scriptText);
-      track("groq", result.tokens);
-      return NextResponse.json({ ...result, available });
-    } catch (err) {
-      console.error("Groq analysis failed:", err);
-    }
-  }
+  // Claude first (quality default) unless Groq was explicitly requested; the
+  // other model is the fallback, rules last. Failures aren't silent — a `note`
+  // rides back on the response so the UI can say which engine failed and why.
+  const order: Array<"claude" | "groq"> =
+    provider === "groq" ? ["groq", "claude"] : ["claude", "groq"];
+  const attempts = order.filter((p) =>
+    p === "groq" ? !!process.env.GROQ_API_KEY : !!anthropicKey()
+  );
+  const failures: string[] = [];
 
-  if (anthropicKey()) {
+  for (const method of attempts) {
     try {
-      const result = await analyzeWithClaude(scriptText);
-      track("claude", result.tokens);
-      return NextResponse.json({ ...result, available });
+      const result =
+        method === "claude"
+          ? await analyzeWithClaude(scriptText)
+          : await analyzeWithGroq(scriptText);
+      track(method, result.tokens);
+      return NextResponse.json({
+        ...result,
+        available,
+        ...(failures.length
+          ? { note: `${failures.join(" · ")} — ${method === "claude" ? "Claude" : "Groq"} generated this shot list instead.` }
+          : {}),
+      });
     } catch (err) {
-      console.error("Claude analysis failed:", err);
+      console.error(`[analyze-script] ${method} failed:`, err);
+      failures.push(`${method === "claude" ? "Claude" : "Groq"} failed (${errorSummary(err)})`);
     }
   }
 
   const result = analyzeWithRules(scriptText);
-  return NextResponse.json({ ...result, available });
+  return NextResponse.json({
+    ...result,
+    available,
+    ...(failures.length
+      ? { note: `${failures.join(" · ")} — used the rule-based engine instead.` }
+      : {}),
+  });
 }

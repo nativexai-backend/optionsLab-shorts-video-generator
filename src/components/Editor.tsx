@@ -1615,6 +1615,9 @@ export const Editor: React.FC = () => {
       setSceneSuggestions(paceBeats(beats, visualPace));
       setShotListStale(false);
       if (data.available) setAvailableProviders(data.available);
+      // A provider failed and the server fell back — say so, so a bad API key
+      // doesn't hide behind silently-switched engines.
+      if (data.note) showToast(data.note, "error");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Script analysis failed", "error");
     } finally {
@@ -1765,6 +1768,7 @@ export const Editor: React.FC = () => {
           prev.map((s) => (s.id === id ? { ...s, imagePrompt: data.imagePrompt } : s))
         );
       }
+      if (data.note) showToast(data.note, "error");
     } catch (err) {
       showToast(`Prompt refine failed: ${err instanceof Error ? err.message : err}`, "error");
     } finally {

@@ -42,7 +42,7 @@ export interface Candle {
   c: number;
 }
 
-export type ChartType = "candles" | "line" | "area";
+export type ChartType = "candles" | "line" | "area" | "spotlight";
 export type ChartTrend = "up" | "down" | "volatile" | "crashRecover";
 export type ChartRange = "1D" | "5D" | "1M" | "6M" | "1Y";
 
@@ -50,6 +50,7 @@ export const CHART_TYPES: { value: ChartType; label: string }[] = [
   { value: "candles", label: "Candles" },
   { value: "line", label: "Line" },
   { value: "area", label: "Area" },
+  { value: "spotlight", label: "Logo spotlight" },
 ];
 
 export const CHART_RANGES: { value: ChartRange; label: string }[] = [

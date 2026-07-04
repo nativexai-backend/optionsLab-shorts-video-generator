@@ -1,7 +1,7 @@
 // ── Shared LLM provider helpers ──
 //
 // The analyze-script / refine-prompt / triage-select routes all talk to the
-// same two providers: Groq (free, llama) first, Claude (paid) as fallback.
+// same two providers: Claude first (quality), Groq (free, llama) as fallback.
 // These helpers own the request/response plumbing — each route keeps its own
 // prompts, parsing, and fallback ladder.
 
@@ -85,6 +85,16 @@ export async function callClaude(opts: {
     text,
     tokens: (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0),
   };
+}
+
+/**
+ * One-line error summary safe to surface in the UI — trimmed so an HTML error
+ * page or a giant provider JSON blob can't flood a toast.
+ */
+export function errorSummary(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const flat = msg.replace(/\s+/g, " ").trim();
+  return flat.length > 160 ? `${flat.slice(0, 157)}…` : flat;
 }
 
 /**

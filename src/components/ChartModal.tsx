@@ -66,7 +66,14 @@ const TickerCombobox: React.FC<{
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const results = useMemo(() => searchTickers(value, 7), [value]);
+  // Unlisted symbols still work (synthetic data + the logo service resolves by
+  // symbol), so when nothing matches offer the typed symbol itself.
+  const results = useMemo(() => {
+    const found = searchTickers(value, 7);
+    if (found.length > 0) return found;
+    const q = value.trim().toUpperCase();
+    return /^[A-Z0-9.\-]{1,12}$/.test(q) ? [{ symbol: q, name: "", price: 0 }] : [];
+  }, [value]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -103,7 +110,7 @@ const TickerCombobox: React.FC<{
               className={`flex items-center justify-between gap-2 px-2.5 py-1.5 cursor-pointer ${i === active ? "bg-blue-600/30" : "hover:bg-zinc-700/50"}`}
             >
               <span className="text-sm font-semibold text-zinc-100">{t.symbol}</span>
-              <span className="text-mini text-zinc-400 truncate">{t.name}</span>
+              <span className="text-mini text-zinc-400 truncate">{t.name || "Not in the list — use anyway"}</span>
             </li>
           ))}
         </ul>
@@ -179,11 +186,15 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
       }
     : null;
 
-  // Re-fetch the logo when the theme flips (dark/light logos differ).
+  // The spotlight's screen is bright, so it needs the light-theme logo (dark
+  // mark) regardless of the chart theme; the card styles follow the theme.
+  const logoTheme = chartType === "spotlight" ? "light" : theme;
+
+  // Re-fetch the logo when the effective logo theme flips (dark/light differ).
   useEffect(() => {
-    if (candles && ticker) queueMicrotask(() => fetchLogo(ticker.toUpperCase(), theme));
+    if (candles && ticker) queueMicrotask(() => fetchLogo(ticker.toUpperCase(), logoTheme));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+  }, [logoTheme]);
 
   const fetchData = useCallback(async (sym?: string) => {
     const symbol = (sym ?? ticker).trim().toUpperCase() || "STOCK";
@@ -194,7 +205,7 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
       if (vals.length < 2) { showToast("Enter at least 2 numbers", "error"); return; }
       setCandles(candlesFromValues(vals));
       setSource("synthetic");
-      if (symbol && symbol !== "STOCK") fetchLogo(symbol, theme);
+      if (symbol && symbol !== "STOCK") fetchLogo(symbol, logoTheme);
       return;
     }
 
@@ -208,13 +219,20 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
       if (!data.candles?.length) throw new Error("No data");
       setCandles(data.candles);
       setSource(data.source);
-      fetchLogo(symbol, theme);
+      fetchLogo(symbol, logoTheme);
     } catch {
       showToast("Couldn't load chart data", "error");
     } finally {
       setLoading(false);
     }
-  }, [ticker, range, trend, theme, dataMode, customValues, fetchLogo, showToast]);
+  }, [ticker, range, trend, logoTheme, dataMode, customValues, fetchLogo, showToast]);
+
+  // Changing Trend or Range must show up in the preview right away — refetch
+  // once data has been loaded (before that, "Load data" is the entry point).
+  useEffect(() => {
+    if (candles && dataMode === "trend") queueMicrotask(() => fetchData());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trend, range]);
 
   // Selecting a ticker auto-fills the company name and immediately loads its chart.
   const handlePick = useCallback((info: TickerInfo) => {
@@ -341,13 +359,20 @@ export const ChartModal: React.FC<Props> = ({ open, onClose, onAddChart, slotCou
                     {CHART_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">Theme</label>
-                  <select value={theme} onChange={(e) => setTheme(e.target.value as "dark" | "light")} className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300">
-                    <option value="dark">Dark</option>
-                    <option value="light">Light</option>
-                  </select>
-                </div>
+                {chartType !== "spotlight" ? (
+                  <div>
+                    <label className="text-xs text-zinc-400 mb-1 block">Theme</label>
+                    <select value={theme} onChange={(e) => setTheme(e.target.value as "dark" | "light")} className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-300">
+                      <option value="dark">Dark</option>
+                      <option value="light">Light</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-xs text-zinc-400 mb-1 block">Look</label>
+                    <p className="text-micro text-zinc-500 leading-snug pt-1">Logo on a glowing tablet over a candle wall — the Trend picks green/up or red/down.</p>
+                  </div>
+                )}
               </div>
             </>
           )}

@@ -26,7 +26,9 @@ import {
 
 type Row = ParsedTopic & { selected: boolean; postAt: number };
 
-const TARGET_PICKS = 5;
+const DEFAULT_PICKS = 5;
+const MAX_PICKS = 10; // mirrors the clamp in /api/triage-select
+const PICKS_KEY = "vid-triage-picks";
 const SPOKEN_WPS = 2.5; // rough words/sec, matches the editor's estimate
 
 // Today's date (YYYY-MM-DD) in WAT, so the novelty window matches the local day.
@@ -52,14 +54,30 @@ export default function TriagePage() {
   const [pickReasons, setPickReasons] = useState<Record<number, { reason: string; noveltyNote?: string }>>({});
   const [skipped, setSkipped] = useState<{ rank: number; similarTo: string; why: string }[]>([]);
   const [pickMethod, setPickMethod] = useState<string | null>(null);
+  const [pickNote, setPickNote] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<number | null>(null);
   const [parsedEmpty, setParsedEmpty] = useState(false);
+  const [targetPicks, setTargetPicks] = useState(DEFAULT_PICKS);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Persist the pick count across visits (read in an effect to avoid a
+  // hydration mismatch — the server always renders the default).
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(PICKS_KEY));
+    if (Number.isInteger(saved) && saved >= 1 && saved <= MAX_PICKS) {
+      queueMicrotask(() => setTargetPicks(saved));
+    }
+  }, []);
+  const changeTargetPicks = (n: number) => {
+    const clamped = Math.max(1, Math.min(MAX_PICKS, n));
+    setTargetPicks(clamped);
+    localStorage.setItem(PICKS_KEY, String(clamped));
+  };
 
   const zoneId = ZONES[zone].id;
   const otherZone: ZoneKey = zone === "WAT" ? "ET" : "WAT";
@@ -74,7 +92,7 @@ export default function TriagePage() {
     setRows(
       topics.map((t, i) => ({
         ...t,
-        selected: t.rank <= TARGET_PICKS, // pre-select the source's top 5
+        selected: t.rank <= targetPicks, // pre-select the source's top N
         postAt: defaultPostTime(i),
       }))
     );
@@ -104,6 +122,7 @@ export default function TriagePage() {
     localStorage.removeItem(LOG_KEY);
     setCreated(null);
     setPickMethod(null);
+    setPickNote(null);
   };
   const logSelected = (selected: Row[]) => {
     const today = watDate();
@@ -227,7 +246,7 @@ export default function TriagePage() {
         body: JSON.stringify({
           topics: rows.map((r) => ({ rank: r.rank, title: r.title, why: r.why, score: r.score, bestPlatform: r.bestPlatform, thumbnail: r.thumbnail, keywords: r.twitterKeywords })),
           recent: recentTopics(),
-          target: TARGET_PICKS,
+          target: targetPicks,
         }),
       });
       const data = await res.json();
@@ -240,8 +259,10 @@ export default function TriagePage() {
       setPickReasons(reasons);
       setSkipped(data.skipped ?? []);
       setPickMethod(data.method ?? null);
+      setPickNote(data.note ?? null);
     } catch {
       setPickMethod("error");
+      setPickNote(null);
     } finally {
       setPicking(false);
     }
@@ -256,7 +277,7 @@ export default function TriagePage() {
           <Link href="/" className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors">← Editor</Link>
         </div>
         <p className="text-mini text-zinc-500 mb-4">
-          Paste the day&apos;s production digest, pick {TARGET_PICKS}, and set posting times. Novelty check vs the last 3 days comes next.
+          Paste the day&apos;s production digest, pick your topics, and set posting times. Novelty check vs the last 3 days comes next.
         </p>
 
         {/* Zone toggle + live dual clock */}
@@ -294,14 +315,35 @@ export default function TriagePage() {
             Parse digest
           </Button>
           {rows.length > 0 && (
-            <Button size="sm" variant="ghost" onClick={pickWithClaude} disabled={picking}>
-              {picking ? "Picking…" : `Pick ${TARGET_PICKS} (AI)`}
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="ghost" onClick={pickWithClaude} disabled={picking}>
+                {picking ? "Picking…" : `Pick ${targetPicks} (AI)`}
+              </Button>
+              <div className="flex items-center bg-zinc-800 rounded-md" role="group" aria-label="Number of topics to pick">
+                <button
+                  onClick={() => changeTargetPicks(targetPicks - 1)}
+                  disabled={picking || targetPicks <= 1}
+                  className="px-1.5 py-1 text-mini text-zinc-400 hover:text-zinc-100 disabled:opacity-40"
+                  aria-label="Pick one fewer topic"
+                >
+                  −
+                </button>
+                <span className="text-mini text-zinc-300 tabular-nums w-4 text-center">{targetPicks}</span>
+                <button
+                  onClick={() => changeTargetPicks(targetPicks + 1)}
+                  disabled={picking || targetPicks >= MAX_PICKS}
+                  className="px-1.5 py-1 text-mini text-zinc-400 hover:text-zinc-100 disabled:opacity-40"
+                  aria-label="Pick one more topic"
+                >
+                  +
+                </button>
+              </div>
+            </div>
           )}
           {rows.length > 0 && (
             <span className="text-mini text-zinc-500">
-              {rows.length} topics · {selectedCount}/{TARGET_PICKS} selected
-              {selectedCount > TARGET_PICKS && <span className="text-amber-400"> (over {TARGET_PICKS})</span>}
+              {rows.length} topics · {selectedCount}/{targetPicks} selected
+              {selectedCount > targetPicks && <span className="text-amber-400"> (over {targetPicks})</span>}
             </span>
           )}
           <button onClick={clearLog} className="ml-auto text-micro text-zinc-600 hover:text-zinc-400" title="Clear the 3-day posted-topic history (for clean re-tests)">
@@ -312,10 +354,11 @@ export default function TriagePage() {
         {/* Pick result banner */}
         {pickMethod && (
           <div className="mb-4 text-mini">
-            {pickMethod === "claude" && <span className="text-violet-300">Claude picked {TARGET_PICKS} — balancing engagement + 3-day novelty.</span>}
-            {pickMethod === "groq" && <span className="text-violet-300">Groq picked {TARGET_PICKS} — balancing engagement + 3-day novelty.</span>}
+            {pickMethod === "claude" && <span className="text-violet-300">Claude picked {Object.keys(pickReasons).length} — balancing engagement + 3-day novelty.</span>}
+            {pickMethod === "groq" && <span className="text-violet-300">Groq picked {Object.keys(pickReasons).length} — balancing engagement + 3-day novelty.</span>}
             {pickMethod === "score" && <span className="text-zinc-400">Picked by engagement score (no Groq/Anthropic key, or model fell back).</span>}
             {pickMethod === "error" && <span className="text-amber-400">Selection failed — left your manual picks as-is.</span>}
+            {pickNote && <div className="mt-1 text-amber-400">⚠ {pickNote}</div>}
             {skipped.length > 0 && (
               <ul className="mt-1 space-y-0.5">
                 {skipped.map((s) => (

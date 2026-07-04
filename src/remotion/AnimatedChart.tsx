@@ -1,6 +1,7 @@
 import React from "react";
 import { AbsoluteFill } from "remotion";
 import type { ChartSpec } from "./types";
+import { LogoSpotlight } from "./LogoSpotlight";
 
 // A minimal branded stock-chart card that draws in as `progress` (0..1) goes
 // 0 → 1. Pure render — no state, no Remotion hooks — so it's frame-deterministic
@@ -42,6 +43,13 @@ const smoothPath = (pts: { x: number; y: number }[]): string => {
 };
 
 export const AnimatedChart: React.FC<Props> = ({ spec, progress, width, height }) => {
+  if (spec.chartType === "spotlight") {
+    return <LogoSpotlight spec={spec} progress={progress} width={width} height={height} />;
+  }
+  return <ChartCard spec={spec} progress={progress} width={width} height={height} />;
+};
+
+const ChartCard: React.FC<Props> = ({ spec, progress, width, height }) => {
   const { candles, chartType, theme, upColor, downColor, ticker, companyName, date, logo, xLabels } = spec;
   const n = candles.length;
   const dark = theme !== "light";

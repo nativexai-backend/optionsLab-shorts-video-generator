@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { anthropicKey } from "@/lib/anthropic";
-import { callGroq, callClaude } from "@/lib/llm";
+import { callGroq, callClaude, errorSummary } from "@/lib/llm";
 import { recordUsage } from "@/lib/usage-storage";
 
 // One-shot prompt refinement: takes a scene's existing image prompt and
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ imagePrompt: r.text, method: "groq" });
     } catch (err) {
       console.error("Groq refine failed:", err);
-      return NextResponse.json({ error: "Groq refine failed" }, { status: 502 });
+      return NextResponse.json({ error: `Groq refine failed: ${errorSummary(err)}. Try switching the provider.` }, { status: 502 });
     }
   }
   if (provider === "claude") {
@@ -112,21 +112,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ imagePrompt: r.text, method: "claude" });
     } catch (err) {
       console.error("Claude refine failed:", err);
-      return NextResponse.json({ error: "Claude refine failed" }, { status: 502 });
+      return NextResponse.json({ error: `Claude refine failed: ${errorSummary(err)}. Try switching the provider to Groq.` }, { status: 502 });
     }
   }
 
-  // Auto — Groq first, Claude fallback.
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const r = await refineWithGroq(userMessage);
-      track("groq", r.tokens);
-      return NextResponse.json({ imagePrompt: r.text, method: "groq" });
-    } catch (err) {
-      console.error("Groq refine failed:", err);
-    }
-  }
-
+  // Auto — Claude first, Groq fallback; report the failure that caused a fallback.
+  let note: string | undefined;
   if (anthropicKey()) {
     try {
       const r = await refineWithClaude(userMessage);
@@ -134,6 +125,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ imagePrompt: r.text, method: "claude" });
     } catch (err) {
       console.error("Claude refine failed:", err);
+      note = `Claude failed (${errorSummary(err)}) — Groq refined this prompt instead.`;
+    }
+  }
+
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const r = await refineWithGroq(userMessage);
+      track("groq", r.tokens);
+      return NextResponse.json({ imagePrompt: r.text, method: "groq", ...(note ? { note } : {}) });
+    } catch (err) {
+      console.error("Groq refine failed:", err);
     }
   }
 
