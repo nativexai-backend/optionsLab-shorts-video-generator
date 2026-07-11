@@ -1298,7 +1298,7 @@ export const Editor: React.FC = () => {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId, projectId: currentProjectId, voiceSettings: voiceDelivery.settings, useV3: voiceDelivery.useV3 === true, deliveryPreset: voiceDelivery.preset }),
+        body: JSON.stringify({ text, voiceId, projectId: currentProjectId, voiceSettings: voiceDelivery.settings, deliveryPreset: voiceDelivery.preset }),
       });
 
       if (!res.ok) {

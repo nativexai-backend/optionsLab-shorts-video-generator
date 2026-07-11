@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { AVATAR_VOICE_MAP, TTS_MODEL_ID, TTS_VOICE_SETTINGS } from "@/lib/voices";
+import { AVATAR_VOICE_MAP, TTS_MODEL_ID_V3, TTS_VOICE_SETTINGS, snapV3Stability } from "@/lib/voices";
 
 // Short voice samples are generated once per avatar and cached on disk,
 // so previews don't burn ElevenLabs credits on every click.
@@ -22,8 +22,9 @@ export async function GET(req: NextRequest) {
 
   // Key the cache by voiceId so changing an avatar's voice in AVATAR_VOICE_MAP
   // automatically produces a fresh sample instead of serving the old (or a
-  // stale/partial) file under the same name.
-  const cachePath = path.join(CACHE_DIR, `${avatar}-${voiceId}.mp3`);
+  // stale/partial) file under the same name. The "-v3" suffix invalidates
+  // samples generated with the old multilingual_v2 model.
+  const cachePath = path.join(CACHE_DIR, `${avatar}-${voiceId}-v3.mp3`);
   if (fs.existsSync(cachePath)) {
     const cached = fs.readFileSync(cachePath);
     return new NextResponse(new Uint8Array(cached), {
@@ -55,8 +56,9 @@ export async function GET(req: NextRequest) {
         },
         body: JSON.stringify({
           text: sampleText(avatar),
-          model_id: TTS_MODEL_ID,
-          voice_settings: TTS_VOICE_SETTINGS,
+          model_id: TTS_MODEL_ID_V3,
+          // v3 only accepts discrete stability values, so snap the default.
+          voice_settings: { ...TTS_VOICE_SETTINGS, stability: snapV3Stability(TTS_VOICE_SETTINGS.stability) },
         }),
       }
     );

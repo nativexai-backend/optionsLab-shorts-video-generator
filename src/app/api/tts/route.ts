@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { TTS_MODEL_ID, TTS_MODEL_ID_V3, V3_CHAR_LIMIT, TTS_VOICE_SETTINGS, sanitizeVoiceSettings, snapV3Stability, type VoiceSettings } from "@/lib/voices";
+import { TTS_MODEL_ID_V3, V3_CHAR_LIMIT, TTS_VOICE_SETTINGS, sanitizeVoiceSettings, snapV3Stability, type VoiceSettings } from "@/lib/voices";
 import { normalizeForTTS } from "@/lib/tts-text";
 import { recordUsage } from "@/lib/usage-storage";
 import { applyPronunciation } from "@/lib/pronunciation";
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     voiceId?: string;
     projectId?: string;
     voiceSettings?: Partial<VoiceSettings>;
-    useV3?: boolean;
+    useV3?: boolean; // legacy — ignored, v3 is always used now
     deliveryPreset?: string;
   };
   try {
@@ -29,15 +29,17 @@ export async function POST(req: NextRequest) {
   }
 
   const { text, voiceId, projectId } = body;
-  const useV3 = body.useV3 === true;
-  const modelId = useV3 ? TTS_MODEL_ID_V3 : TTS_MODEL_ID;
+  // Expressive (v3) is always on — multilingual_v2 develops long pauses and a
+  // slowing pace on long generations, and v3 sounded far better in practice.
+  // The client's useV3 flag is ignored so older saved projects can't fall back.
+  const modelId = TTS_MODEL_ID_V3;
   // Per-take delivery override (stability/style/speed). Falls back to the
   // default settings when the client doesn't send any. v3 only accepts
-  // discrete stability values, so snap it when in expressive mode.
+  // discrete stability values, so always snap it.
   const voiceSettings = body.voiceSettings
     ? sanitizeVoiceSettings(body.voiceSettings)
     : { ...TTS_VOICE_SETTINGS };
-  if (useV3) voiceSettings.stability = snapV3Stability(voiceSettings.stability);
+  voiceSettings.stability = snapV3Stability(voiceSettings.stability);
   if (!text || !voiceId) {
     return NextResponse.json(
       { error: "Both 'text' and 'voiceId' are required" },
@@ -58,9 +60,9 @@ export async function POST(req: NextRequest) {
   const dict = await readPronunciations();
   const billedText = normalizeForTTS(applyPronunciation(text, dict));
 
-  if (useV3 && billedText.length > V3_CHAR_LIMIT) {
+  if (billedText.length > V3_CHAR_LIMIT) {
     return NextResponse.json(
-      { error: `Expressive (v3) mode supports up to ${V3_CHAR_LIMIT} characters — shorten the script or switch off Expressive mode.` },
+      { error: `Expressive (v3) voice supports up to ${V3_CHAR_LIMIT} characters after number expansion (this script expands to ${billedText.length}) — shorten the script.` },
       { status: 400 }
     );
   }

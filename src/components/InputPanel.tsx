@@ -1976,7 +1976,6 @@ function DeliveryControl({
   const setSetting = (key: keyof VoiceSettings, v: number | boolean) => {
     onChange({ ...delivery, preset: "custom", settings: { ...s, [key]: v } });
   };
-  const toggleV3 = () => onChange({ ...delivery, useV3: !delivery.useV3 });
 
   const openSpec = () => {
     const next = !showSpec;
@@ -2119,35 +2118,27 @@ function DeliveryControl({
         </div>
       )}
 
-      {/* Expressive (v3) mode — inline audio tags. Off by default. */}
+      {/* Expressive (v3) mode — always on; every generation uses eleven_v3. */}
       <div className="pt-1.5 mt-0.5 border-t border-zinc-800 space-y-1.5">
-        <label className="flex items-center justify-between cursor-pointer select-none">
-          <span className="text-micro text-zinc-400">Expressive mode <span className="text-zinc-600">(v3 · alpha)</span></span>
-          <span className="relative inline-flex">
-            <input type="checkbox" checked={!!delivery.useV3} onChange={toggleV3} className="peer sr-only" />
-            <span className="w-7 h-4 rounded-full bg-zinc-700 peer-checked:bg-violet-600 transition-colors" />
-            <span className="absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform peer-checked:translate-x-3" />
-          </span>
-        </label>
-        {delivery.useV3 && (
-          <>
-            <div className="flex flex-wrap gap-1">
-              {paletteTags.map((tag) => (
-                <Chip
-                  key={tag}
-                  onClick={() => onInsertTag(tag)}
-                  className="px-1.5 py-0.5 text-micro rounded bg-zinc-800 text-violet-300 hover:bg-zinc-700"
-                  title={`Insert [${tag}] at the cursor`}
-                >
-                  {tag}
-                </Chip>
-              ))}
-            </div>
-            <p className="text-micro text-zinc-500">
-              {delivery.tags?.length ? "Tags from your pasted spec. " : ""}Tags steer delivery only — spoken cues, never read aloud or shown in captions. v3 is non-deterministic and needs ElevenLabs v3 access.
-            </p>
-          </>
-        )}
+        <div className="flex items-center justify-between select-none">
+          <span className="text-micro text-zinc-400">Expressive mode <span className="text-zinc-600">(v3)</span></span>
+          <span className="text-micro px-1.5 py-0.5 rounded bg-violet-600/20 text-violet-300">Always on</span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {paletteTags.map((tag) => (
+            <Chip
+              key={tag}
+              onClick={() => onInsertTag(tag)}
+              className="px-1.5 py-0.5 text-micro rounded bg-zinc-800 text-violet-300 hover:bg-zinc-700"
+              title={`Insert [${tag}] at the cursor`}
+            >
+              {tag}
+            </Chip>
+          ))}
+        </div>
+        <p className="text-micro text-zinc-500">
+          {delivery.tags?.length ? "Tags from your pasted spec. " : ""}Tags steer delivery only — spoken cues, never read aloud or shown in captions.
+        </p>
       </div>
       </Disclosure>
     </div>

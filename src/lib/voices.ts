@@ -16,10 +16,10 @@ export const AVATAR_VOICE_MAP: Record<string, string> = {
   lucas: "BkJz3OuzTACL7nqkxVsh",
 };
 
-export const TTS_MODEL_ID = "eleven_multilingual_v2";
-// Eleven v3 (alpha) — understands inline [audio tags] like [warm], [curious],
-// [laughs]. More expressive but non-deterministic and may require account
-// access. Used only when a take opts into expressive mode.
+// Eleven v3 — understands inline [audio tags] like [warm], [curious],
+// [laughs]. Always used for every ElevenLabs generation: multilingual_v2
+// developed long pauses and a slowing pace on long generations, and v3
+// sounded far better in practice (2026-07-07).
 export const TTS_MODEL_ID_V3 = "eleven_v3";
 // v3 caps text shorter than v2; keep generations under this to avoid API errors.
 export const V3_CHAR_LIMIT = 3000;
@@ -59,7 +59,7 @@ export interface VoiceDelivery {
   // exactly (1:1 with the digest's ready-to-send API call), regardless of which
   // avatar face is shown. Empty/undefined falls back to AVATAR_VOICE_MAP.
   voiceId?: string;
-  useV3?: boolean; // opt into Eleven v3 expressive mode ([audio tags])
+  useV3?: boolean; // legacy — v3 expressive mode is now always on; kept so older saved projects still parse
   // Populated by pasting a per-script voice spec (see parseVoiceSpec):
   tags?: string[]; // suggested audio tags — drives the v3 insert palette
   prosody?: string; // reference note (no API field exists for it)
@@ -70,7 +70,7 @@ export interface VoiceDelivery {
 export const DEFAULT_DELIVERY: VoiceDelivery = {
   preset: "anchor",
   settings: { ...DELIVERY_PRESETS.anchor },
-  useV3: false,
+  useV3: true,
 };
 
 // v3 only accepts discrete stability values (Creative/Natural/Robust). Snap any

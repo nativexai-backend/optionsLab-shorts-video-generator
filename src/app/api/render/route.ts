@@ -49,8 +49,13 @@ async function getBundleLocation() {
   if (bundleLocation && !isDev) return bundleLocation;
 
   const entryPoint = path.resolve(process.cwd(), "src/remotion/index.ts");
+  // Reuse one fixed output dir so dev rebuilds overwrite in place instead of
+  // leaking a fresh temp bundle (~4MB each) on every export — those pile up
+  // and eventually fill the disk, failing renders with ENOSPC.
+  const outDir = path.join(os.tmpdir(), "vid-remotion-bundle");
   bundleLocation = await bundle({
     entryPoint,
+    outDir,
     webpackOverride: (config) => config,
   });
   return bundleLocation;

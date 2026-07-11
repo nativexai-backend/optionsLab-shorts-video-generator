@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/Button";
 import { Chip } from "@/components/IconButton";
@@ -12,6 +12,7 @@ import {
   saveProjectState,
   setActiveProjectId,
   createProjectOnServer,
+  listProjectsFromServer,
   type SerializableState,
 } from "@/lib/storage";
 import {
@@ -24,12 +25,40 @@ import {
   wallHHMM,
 } from "@/lib/timezones";
 
-type Row = ParsedTopic & { selected: boolean; postAt: number };
+// uid is a globally unique rank across all loaded digests (per-file ranks
+// collide, and the AI-select API uses "rank" as the identity token).
+type Row = ParsedTopic & { uid: number; source: string; selected: boolean; postAt: number };
 
 const DEFAULT_PICKS = 5;
 const MAX_PICKS = 10; // mirrors the clamp in /api/triage-select
 const PICKS_KEY = "vid-triage-picks";
 const SPOKEN_WPS = 2.5; // rough words/sec, matches the editor's estimate
+const NOVELTY_DAYS = 7; // how far back "recently posted" reaches
+
+// Words too generic to signal topic overlap on this channel — everything else
+// (tickers, company names, entities) counts as a distinctive term.
+const NOVELTY_STOPWORDS = new Set([
+  "the", "and", "for", "with", "this", "that", "just", "into", "before", "after", "while", "from",
+  "could", "should", "would", "will", "wont", "cant", "gets", "goes", "over", "under", "off",
+  "nobody", "everyone", "how", "why", "what", "when", "one", "two", "three", "new", "big",
+  "real", "best", "worst", "ever", "still", "again", "back", "now", "its", "your", "our",
+  "stock", "stocks", "market", "markets", "earnings", "trade", "trading", "invest", "investing",
+  "investors", "shares", "price", "prices", "rally", "crash", "surge", "soars", "drops", "falls",
+  "rises", "beats", "beat", "misses", "bull", "bear", "week", "year", "month", "day", "today",
+  "quarter", "billion", "trillion", "million", "percent", "high", "low", "highs", "lows", "record",
+]);
+
+// Distinctive lowercase tokens of a title/keyword string ("Caterpillar Beat
+// Nvidia This Year" → caterpillar, nvidia).
+function sigTokens(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !/^\d+$/.test(w) && !NOVELTY_STOPWORDS.has(w))
+  );
+}
 
 // Today's date (YYYY-MM-DD) in WAT, so the novelty window matches the local day.
 function watDate(offsetDays = 0): string {
@@ -45,8 +74,20 @@ function defaultPostTime(index: number): number {
   return start.getTime() + index * 90 * 60000;
 }
 
+// Short display label for a digest source ("q3-digest.txt" → "q3-digest").
+function shortSource(name: string): string {
+  const base = name.replace(/\.(txt|md|text)$/i, "");
+  return base.length > 18 ? `${base.slice(0, 17)}…` : base;
+}
+
 export default function TriagePage() {
   const [raw, setRaw] = useState("");
+  const [files, setFiles] = useState<{ name: string; text: string }[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+  // Whole-page drag-and-drop: depth counter because dragenter/leave also fire
+  // on every child element crossed.
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const [rows, setRows] = useState<Row[]>([]);
   const [zone, setZone] = useState<ZoneKey>("WAT");
   const [now, setNow] = useState(() => Date.now());
@@ -84,18 +125,71 @@ export default function TriagePage() {
   const otherId = ZONES[otherZone].id;
 
   const selectedCount = useMemo(() => rows.filter((r) => r.selected).length, [rows]);
+  const sourceNames = useMemo(() => [...new Set(rows.map((r) => r.source))], [rows]);
+  const multiSource = sourceNames.length > 1;
+  const rowByUid = useMemo(() => new Map(rows.map((r) => [r.uid, r])), [rows]);
 
-  const parse = () => {
-    const topics = parseDigest(raw);
-    setParsedEmpty(raw.trim().length > 0 && topics.length === 0);
-    setCreated(null); // a fresh slate may be created again
+  // Parse every loaded digest (uploaded files + anything pasted) into one
+  // combined topic list. Ids get a source prefix so per-file ranks can repeat.
+  const parseAll = (fileList = files, rawText = raw) => {
+    const sources = [
+      ...fileList.map((f) => ({ label: f.name, text: f.text })),
+      ...(rawText.trim() ? [{ label: "pasted", text: rawText }] : []),
+    ];
+    const combined: (ParsedTopic & { source: string })[] = [];
+    sources.forEach((s, si) => {
+      for (const t of parseDigest(s.text)) combined.push({ ...t, source: s.label, id: `${si}:${t.id}` });
+    });
+    setParsedEmpty(sources.length > 0 && combined.length === 0);
+    // A fresh slate may be created again; old pick reasons are keyed by uid and
+    // would mis-attach to the new rows.
+    setCreated(null);
+    setPickReasons({});
+    setSkipped([]);
+    setPickMethod(null);
+    setPickNote(null);
+
+    // Default selection: one digest keeps its own top N; with several digests,
+    // round-robin by rank so every script contributes to the slate.
+    const chosen = new Set<string>();
+    const distinct = [...new Set(combined.map((t) => t.source))];
+    if (distinct.length <= 1) {
+      combined.filter((t) => t.rank <= targetPicks).forEach((t) => chosen.add(t.id));
+    } else {
+      const lists = distinct.map((s) => combined.filter((t) => t.source === s).sort((a, b) => a.rank - b.rank));
+      const maxLen = Math.max(...lists.map((l) => l.length));
+      for (let i = 0; i < maxLen && chosen.size < targetPicks; i++) {
+        for (const l of lists) {
+          if (chosen.size >= targetPicks) break;
+          if (l[i]) chosen.add(l[i].id);
+        }
+      }
+    }
+
     setRows(
-      topics.map((t, i) => ({
+      combined.map((t, i) => ({
         ...t,
-        selected: t.rank <= targetPicks, // pre-select the source's top N
+        uid: i + 1,
+        selected: chosen.has(t.id),
         postAt: defaultPostTime(i),
       }))
     );
+  };
+
+  const onFiles = async (list: FileList | null) => {
+    if (!list || list.length === 0) return;
+    const loaded = await Promise.all(
+      Array.from(list).map(async (f) => ({ name: f.name, text: await f.text() }))
+    );
+    const next = [...files, ...loaded];
+    setFiles(next);
+    parseAll(next); // uploading parses immediately — no extra click
+  };
+
+  const removeFile = (index: number) => {
+    const next = files.filter((_, i) => i !== index);
+    setFiles(next);
+    parseAll(next);
   };
 
   const update = (id: string, patch: Partial<Row>) =>
@@ -107,17 +201,78 @@ export default function TriagePage() {
     update(r.id, { postAt: setWallTime(new Date(r.postAt), hh, mm, zoneId).getTime() });
   };
 
-  // ── posted-topic history (localStorage), for the 3-day novelty check ──
-  // Dates are WAT calendar days so the window matches the local schedule.
+  // ── posted-topic history, for the 7-day novelty check ──
+  // Two sources, merged: the localStorage log (has keywords, but per-browser
+  // and resettable) and the server's project list (survives everything — a
+  // created project is proof the topic was produced). Dates are WAT days.
   const LOG_KEY = "vid-triage-log";
   type LogEntry = { date: string; title: string; score?: number; why?: string; persona?: string; keywords?: string[] };
   const loadLog = (): LogEntry[] => {
     try { return JSON.parse(localStorage.getItem(LOG_KEY) || "[]"); } catch { return []; }
   };
   const recentTopics = (): LogEntry[] => {
-    const cutoff = watDate(-3); // ISO strings compare lexicographically
+    const cutoff = watDate(-NOVELTY_DAYS); // ISO strings compare lexicographically
     return loadLog().filter((e) => e.date >= cutoff);
   };
+
+  const [serverHistory, setServerHistory] = useState<LogEntry[]>([]);
+  useEffect(() => {
+    listProjectsFromServer()
+      .then((projects) => {
+        const cutoff = Date.now() - NOVELTY_DAYS * 86400000;
+        setServerHistory(
+          projects
+            .filter((p) => p.createdAt >= cutoff && p.name && p.name !== "Untitled")
+            .map((p) => {
+              const { y, mo, d } = zonedYMD(new Date(p.createdAt), ZONES.WAT.id);
+              return { date: `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`, title: p.name };
+            })
+        );
+      })
+      .catch(() => {}); // offline: localStorage log still covers it
+  }, []);
+
+  // Log + server projects, deduped (a triage-created project appears in both
+  // under the same title and WAT day).
+  const noveltyHistory = (): LogEntry[] => {
+    const seen = new Set<string>();
+    return [...recentTopics(), ...serverHistory].filter((e) => {
+      const k = `${e.date}::${e.title.toLowerCase()}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
+
+  const daysAgoOf = (date: string): number => {
+    const [y, m, d] = date.split("-").map(Number);
+    const [ty, tm, td] = watDate().split("-").map(Number);
+    return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(y, m - 1, d)) / 86400000);
+  };
+
+  // Parse-time novelty warnings: a topic whose title/keywords share a
+  // distinctive term with something posted in the window gets flagged on its
+  // card, before any AI pick runs.
+  const noveltyWarnings = useMemo(() => {
+    const map = new Map<string, { title: string; daysAgo: number; term: string }>();
+    const history = noveltyHistory().map((e) => ({
+      ...e,
+      tokens: sigTokens(`${e.title} ${(e.keywords ?? []).join(" ")}`),
+    }));
+    for (const r of rows) {
+      const tokens = sigTokens(`${r.title} ${r.twitterKeywords.join(" ")}`);
+      let best: { title: string; daysAgo: number; term: string } | null = null;
+      for (const h of history) {
+        const term = [...tokens].find((t) => h.tokens.has(t));
+        if (!term) continue;
+        const daysAgo = daysAgoOf(h.date);
+        if (!best || daysAgo < best.daysAgo) best = { title: h.title, daysAgo, term };
+      }
+      if (best) map.set(r.id, best);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, serverHistory]);
   const clearLog = () => {
     localStorage.removeItem(LOG_KEY);
     setCreated(null);
@@ -186,7 +341,10 @@ export default function TriagePage() {
         // exactly, independent of the avatar→voice map. ("(...)" placeholders
         // from un-designed voices are ignored.)
         voiceId: r.voiceId && !r.voiceId.startsWith("(") ? r.voiceId : undefined,
-        useV3: false,
+        // Expressive (v3) is always on now (the TTS route forces it). v3 caps
+        // at 3000 billed chars, so overly long digest scripts will need a trim
+        // before voicing.
+        useV3: true,
         tags: r.tags,
         prosody: r.prosody,
         voiceDescription: r.voiceDescription,
@@ -244,8 +402,10 @@ export default function TriagePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          topics: rows.map((r) => ({ rank: r.rank, title: r.title, why: r.why, score: r.score, bestPlatform: r.bestPlatform, thumbnail: r.thumbnail, keywords: r.twitterKeywords })),
-          recent: recentTopics(),
+          // "rank" here is the row uid — unique across digests (per-file ranks
+          // collide when several are loaded).
+          topics: rows.map((r) => ({ rank: r.uid, title: r.title, why: r.why, score: r.score, bestPlatform: r.bestPlatform, thumbnail: r.thumbnail, keywords: r.twitterKeywords, source: multiSource ? shortSource(r.source) : undefined })),
+          recent: noveltyHistory(),
           target: targetPicks,
         }),
       });
@@ -255,7 +415,7 @@ export default function TriagePage() {
       (data.picks ?? []).forEach((p: { rank: number; reason: string; noveltyNote?: string }) => {
         reasons[p.rank] = { reason: p.reason, noveltyNote: p.noveltyNote };
       });
-      setRows((prev) => prev.map((r) => ({ ...r, selected: ranks.has(r.rank) })));
+      setRows((prev) => prev.map((r) => ({ ...r, selected: ranks.has(r.uid) })));
       setPickReasons(reasons);
       setSkipped(data.skipped ?? []);
       setPickMethod(data.method ?? null);
@@ -269,7 +429,37 @@ export default function TriagePage() {
   };
 
   return (
-    <div className="min-h-dvh bg-zinc-950 text-zinc-200">
+    <div
+      className="min-h-dvh bg-zinc-950 text-zinc-200"
+      onDragEnter={(e) => {
+        if (e.dataTransfer?.types?.includes("Files")) {
+          dragDepth.current++;
+          setDragging(true);
+        }
+      }}
+      onDragLeave={() => {
+        if (--dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setDragging(false);
+        }
+      }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (e.dataTransfer.files?.length) onFiles(e.dataTransfer.files);
+      }}
+    >
+      {dragging && (
+        <div className="fixed inset-0 z-50 pointer-events-none bg-zinc-950/70 flex items-center justify-center">
+          <div className="border-2 border-dashed border-sky-400 rounded-xl px-10 py-8 bg-zinc-900/90 text-center">
+            <div className="text-2xl mb-2">⬇</div>
+            <div className="text-sm text-sky-300 font-medium">Drop digest .txt files anywhere</div>
+            <div className="text-mini text-zinc-500 mt-1">They parse instantly and add to the topic pool</div>
+          </div>
+        </div>
+      )}
       <div className="max-w-3xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
@@ -277,7 +467,7 @@ export default function TriagePage() {
           <Link href="/" className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors">← Editor</Link>
         </div>
         <p className="text-mini text-zinc-500 mb-4">
-          Paste the day&apos;s production digest, pick your topics, and set posting times. Novelty check vs the last 3 days comes next.
+          Upload (or paste) one or more production digests, pick your topics, and set posting times. With several digests loaded, picks draw from each to fill the slate. Topics overlapping the last {NOVELTY_DAYS} days of projects get flagged.
         </p>
 
         {/* Zone toggle + live dual clock */}
@@ -302,17 +492,51 @@ export default function TriagePage() {
           </div>
         </div>
 
-        {/* Paste + parse */}
+        {/* Upload + paste + parse */}
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".txt,.md,text/plain"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            onFiles(e.target.files);
+            e.target.value = ""; // allow re-picking the same file after removal
+          }}
+        />
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <Button size="sm" variant="ghost" onClick={() => fileRef.current?.click()}>
+            ⬆ Upload digest (.txt)
+          </Button>
+          {files.map((f, i) => (
+            <span
+              key={`${f.name}-${i}`}
+              className="inline-flex items-center gap-1.5 text-mini px-2 py-1 rounded-md bg-sky-500/10 border border-sky-500/25 text-sky-300"
+            >
+              {shortSource(f.name)}
+              <span className="text-sky-500/70 tabular-nums">{rows.filter((r) => r.source === f.name).length}</span>
+              <button
+                onClick={() => removeFile(i)}
+                className="text-sky-400/70 hover:text-sky-200"
+                aria-label={`Remove ${f.name}`}
+                title="Remove this digest"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          {files.length > 0 && <span className="text-micro text-zinc-600">more files add to the pool · paste below works too</span>}
+        </div>
         <textarea
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           rows={5}
-          placeholder="Paste the full PERSONA SHORTS production digest here…"
+          placeholder="…or paste a PERSONA SHORTS production digest here (you can also drop .txt files anywhere on the page)"
           className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-600 resize-y focus-visible:ring-2 focus-visible:ring-blue-500 font-mono"
         />
         <div className="flex items-center gap-3 mt-2 mb-3">
-          <Button size="sm" onClick={parse}>
-            Parse digest
+          <Button size="sm" onClick={() => parseAll()}>
+            Parse digest{files.length + (raw.trim() ? 1 : 0) > 1 ? "s" : ""}
           </Button>
           {rows.length > 0 && (
             <div className="flex items-center gap-1">
@@ -342,11 +566,16 @@ export default function TriagePage() {
           )}
           {rows.length > 0 && (
             <span className="text-mini text-zinc-500">
-              {rows.length} topics · {selectedCount}/{targetPicks} selected
+              {rows.length} topics{multiSource ? ` from ${sourceNames.length} digests` : ""} · {selectedCount}/{targetPicks} selected
               {selectedCount > targetPicks && <span className="text-amber-400"> (over {targetPicks})</span>}
+              {multiSource && (
+                <span className="text-zinc-600">
+                  {" "}({sourceNames.map((s) => `${rows.filter((r) => r.source === s && r.selected).length} ${shortSource(s)}`).join(" · ")})
+                </span>
+              )}
             </span>
           )}
-          <button onClick={clearLog} className="ml-auto text-micro text-zinc-600 hover:text-zinc-400" title="Clear the 3-day posted-topic history (for clean re-tests)">
+          <button onClick={clearLog} className="ml-auto text-micro text-zinc-600 hover:text-zinc-400" title="Clear the local posted-topic log (server project history still applies)">
             Reset novelty log
           </button>
         </div>
@@ -354,15 +583,15 @@ export default function TriagePage() {
         {/* Pick result banner */}
         {pickMethod && (
           <div className="mb-4 text-mini">
-            {pickMethod === "claude" && <span className="text-violet-300">Claude picked {Object.keys(pickReasons).length} — balancing engagement + 3-day novelty.</span>}
-            {pickMethod === "groq" && <span className="text-violet-300">Groq picked {Object.keys(pickReasons).length} — balancing engagement + 3-day novelty.</span>}
+            {pickMethod === "claude" && <span className="text-violet-300">Claude picked {Object.keys(pickReasons).length} — balancing engagement + {NOVELTY_DAYS}-day novelty.</span>}
+            {pickMethod === "groq" && <span className="text-violet-300">Groq picked {Object.keys(pickReasons).length} — balancing engagement + {NOVELTY_DAYS}-day novelty.</span>}
             {pickMethod === "score" && <span className="text-zinc-400">Picked by engagement score (no Groq/Anthropic key, or model fell back).</span>}
             {pickMethod === "error" && <span className="text-amber-400">Selection failed — left your manual picks as-is.</span>}
             {pickNote && <div className="mt-1 text-amber-400">⚠ {pickNote}</div>}
             {skipped.length > 0 && (
               <ul className="mt-1 space-y-0.5">
                 {skipped.map((s) => (
-                  <li key={s.rank} className="text-zinc-500">↳ skipped #{s.rank}: too close to <span className="text-zinc-400">{s.similarTo}</span> — {s.why}</li>
+                  <li key={s.rank} className="text-zinc-500">↳ skipped {rowByUid.get(s.rank)?.title ?? `#${s.rank}`}: too close to <span className="text-zinc-400">{s.similarTo}</span> — {s.why}</li>
                 ))}
               </ul>
             )}
@@ -389,6 +618,11 @@ export default function TriagePage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-micro font-semibold text-zinc-500 tabular-nums">#{r.rank}</span>
+                    {multiSource && (
+                      <span className="text-micro px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 max-w-[10rem] truncate" title={r.source}>
+                        {shortSource(r.source)}
+                      </span>
+                    )}
                     <span className="text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-300 tabular-nums">{r.score}</span>
                     <span className="text-sm font-medium text-zinc-100">{r.title}</span>
                   </div>
@@ -405,10 +639,17 @@ export default function TriagePage() {
                       <span className="text-micro px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">voice not designed</span>
                     ) : null}
                   </div>
-                  {pickReasons[r.rank] && (
+                  {noveltyWarnings.has(r.id) && (
+                    <p className="text-mini text-amber-400 mt-1.5">
+                      ⚠ “{noveltyWarnings.get(r.id)!.term}” posted{" "}
+                      {noveltyWarnings.get(r.id)!.daysAgo === 0 ? "today" : `${noveltyWarnings.get(r.id)!.daysAgo}d ago`}:{" "}
+                      <span className="text-amber-300/80">{noveltyWarnings.get(r.id)!.title}</span>
+                    </p>
+                  )}
+                  {pickReasons[r.uid] && (
                     <p className="text-mini text-violet-300/90 mt-1.5">
-                      ✦ {pickReasons[r.rank].reason}
-                      {pickReasons[r.rank].noveltyNote ? <span className="text-violet-400/70"> · {pickReasons[r.rank].noveltyNote}</span> : null}
+                      ✦ {pickReasons[r.uid].reason}
+                      {pickReasons[r.uid].noveltyNote ? <span className="text-violet-400/70"> · {pickReasons[r.uid].noveltyNote}</span> : null}
                     </p>
                   )}
                   {r.script && <p className="text-mini text-zinc-600 mt-1.5 line-clamp-2">{r.script}</p>}
@@ -438,8 +679,8 @@ export default function TriagePage() {
         {rows.length === 0 && (
           <p className="text-mini text-zinc-600 text-center py-8">
             {parsedEmpty
-              ? "Found 0 topics in the pasted text — check the digest format (expects the PERSONA SHORTS production digest)."
-              : "No topics yet — paste the digest and hit “Parse digest”."}
+              ? "Found 0 topics in the provided text — check the digest format (expects the PERSONA SHORTS production digest)."
+              : "No topics yet — upload a .txt digest (or paste one) and hit “Parse”."}
           </p>
         )}
 
@@ -458,7 +699,7 @@ export default function TriagePage() {
                 Created {created} · logged for novelty · <Link href="/" className="underline hover:text-emerald-300">open Editor →</Link>
               </span>
             )}
-            <span className="text-micro text-zinc-600">Creating auto-logs the slate (WAT day) for the 3-day novelty check.</span>
+            <span className="text-micro text-zinc-600">Creating auto-logs the slate (WAT day) for the {NOVELTY_DAYS}-day novelty check.</span>
           </div>
         )}
       </div>
