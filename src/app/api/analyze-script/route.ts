@@ -47,7 +47,9 @@ When a segment names one or more countries, nations, or geopolitical actors (USA
 CATEGORY RECIPES (subject-first; one example each):
 - person — a specific person (CEO, analyst, public figure). Recipe: full name + title, setting, pose/expression, then house style. Example: "Elon Musk, Tesla CEO, speaking at a daytime press event, confident expression, three-quarter portrait framed in upper two-thirds, bright modern venue with natural light, editorial press photography, shallow depth of field 85mm look, clean uncluttered lower third, no text overlays, vertical 9:16 format"
 - logo — the brand shown in the REAL WORLD, photographed — never a floating emblem or a glowing icon on a wall. Recipe: company signage in a real location (headquarters facade, office tower, storefront, campus entrance), camera angle, time of day. Example: "Tesla logo signage on glass headquarters facade on a clear sunny day, low-angle architectural photography, blue sky and cloud reflections in glass, editorial press photo style, clean plaza in lower third, no text overlays, vertical 9:16 format"
-- chart — market action shown as a CANDID HUMAN SCENE, real people working at a multi-monitor trading desk (never a sterile chart-on-a-wall graphic). The candlestick trend is visible on the screens; trend color comes from those screens (green up / red down). VARY THE PEOPLE AND SETTING EVERY TIME — change the number, gender, age and wardrobe of the people, the monitor setup, and the office (open-plan loft, fintech startup, glass trading room, home battlestation, co-working space). Recipe: real people + what they're doing + the multi-monitor setup with the candlestick trend on screen + varied bright setting + candid lifestyle camera feel. Example: "two young traders at a six-monitor desk, one standing and pointing at the screens while the other types, stock charts with green candlesticks rising on the monitors, bright modern open-plan trading loft with an industrial ceiling, exposed staircase and potted plants, warm natural daylight from large windows, candid side-angle lifestyle photography, shallow depth of field, uncluttered lower third, no axis numbers, no price labels, no text overlays, vertical 9:16 format"
+- chart — market action shown as a CANDID HUMAN SCENE (never a sterile chart-on-a-wall graphic), in ONE of TWO styles. ALTERNATE between them across the shot list so consecutive chart scenes never share a style, and VARY the details every time. Trend color always comes from the charts themselves (green candles up / red candles down).
+  Style A — trading desk: real people working at a multi-monitor trading desk, candlestick trend visible on the screens. Vary the number, gender, age and wardrobe of the people, the monitor setup, and the office (open-plan loft, fintech startup, glass trading room, home battlestation, co-working space). Example: "two young traders at a six-monitor desk, one standing and pointing at the screens while the other types, stock charts with green candlesticks rising on the monitors, bright modern open-plan trading loft with an industrial ceiling, exposed staircase and potted plants, warm natural daylight from large windows, candid side-angle lifestyle photography, shallow depth of field, uncluttered lower third, no axis numbers, no price labels, no text overlays, vertical 9:16 format"
+  Style B — printed charts on a desk: a faceless close-up of an analyst's hands with PRINTED candlestick chart sheets spread on a desk — dark chart printouts on white paper, a pen pointing at or tracing the trend, laptop or coffee nearby, soft window light on wood. No faces, no screens as the main subject. Vary the desk items, camera angle (overhead flat-lay, three-quarter close-up, over-the-shoulder detail) and gesture (pointing with a pen, circling the trend, comparing two sheets). Example: "close-up of a businessman's hand in a dark suit pointing a pen at printed candlestick charts with green candles rising, chart printouts spread across a warm wooden desk, laptop and glass of water nearby, soft natural window light, editorial detail photography, shallow depth of field, uncluttered lower third, no axis numbers, no price labels, no text overlays, vertical 9:16 format"
 - product — physical product, app, or service visual. Recipe: product name, hero angle, surface, lighting. Example: "iPhone 16 Pro, hero product shot at a slight angle on a clean white desk by a window, soft natural daylight, subtle true shadows, premium tech editorial photography, shallow depth of field, smooth uncluttered surface in lower third, no labels, no text overlays, vertical 9:16 format"
 - b-roll — contextual atmosphere (office, skyline, street, factory). Recipe: specific scene, time of day, camera feel. Example: "Modern financial district street on a clear morning, glass towers and professionals walking, bright natural light, candid editorial photography, shallow depth of field, clean pavement in lower third, no text overlays, vertical 9:16 format"
 - text-overlay — use SPARINGLY (captions already carry the words); depict a physical metaphor for the stat or moment instead, with zero glyphs or numbers. Example: "Hourglass with sand running low on a bright desk by a window, soft morning light, blurred modern office in background, macro photography shallow depth of field, clean surface in lower third, no text overlays, vertical 9:16 format"
@@ -83,7 +85,7 @@ Return ONLY valid JSON (no markdown fences) in this exact format:
 
 wordRange is [startWordIndex, endWordIndex] (0-based, inclusive) covering which words in the script this scene maps to. Scenes must cover the entire script without gaps or overlaps.
 
-FINAL CHECK for every imagePrompt: subject named first and searchable; reads as a PHOTOGRAPH of one real scene (chart scenes show real people at a trading desk; oil scenes show physical barrels; country scenes show national flags in a high-profile chamber/summit/lab — never a bare graphic); BRIGHT natural light stated (except geopolitical/ceremonial scenes, which may be cinematic and moody); contains NO digits, amounts, dates, or quantities; no glow-behind-logo, no split-screen; correct trend color from in-scene screens; upper-two-thirds composition with a calm uncluttered lower third stated; ends with "no text overlays, vertical 9:16 format".`;
+FINAL CHECK for every imagePrompt: subject named first and searchable; reads as a PHOTOGRAPH of one real scene (chart scenes show real people at a trading desk OR hands with printed chart sheets on a desk; oil scenes show physical barrels; country scenes show national flags in a high-profile chamber/summit/lab — never a bare graphic); BRIGHT natural light stated (except geopolitical/ceremonial scenes, which may be cinematic and moody); contains NO digits, amounts, dates, or quantities; no glow-behind-logo, no split-screen; correct trend color from in-scene screens; upper-two-thirds composition with a calm uncluttered lower third stated; ends with "no text overlays, vertical 9:16 format".`;
 
 function buildUserMessage(scriptText: string, totalWords: number): string {
   return `Analyze this script (${totalWords} words total) and suggest visual scenes:\n\n${scriptText}`;
@@ -287,6 +289,29 @@ function tradingDeskPrompt(trendColor: string): string {
   return `${people} at ${monitors} showing stock market charts with ${trendColor}, in a ${setting}, warm natural daylight from large windows, ${shot}, authentic finance lifestyle photography, uncluttered lower third, no price labels, no percentage text, no axis numbers, no text overlays, vertical 9:16 format (720x1280)`;
 }
 
+// Faceless printed-charts-on-a-desk detail scene — varied gesture/angle/props each call.
+function printedChartsPrompt(trendColor: string): string {
+  const action = pickRandom([
+    "close-up of a businessman's hand in a dark suit pointing a pen at printed candlestick charts",
+    "an analyst's hand tracing a candlestick trend with a silver pen on chart printouts",
+    "hands comparing two printed stock chart sheets side by side",
+    "a hand circling a trend line with a pen on a printed candlestick chart",
+    "overhead flat-lay of an analyst's hands reviewing printed stock charts with a pen",
+  ]);
+  const props = pickRandom([
+    "laptop and a glass of water nearby on a warm wooden desk",
+    "open laptop, wireless earbuds and a coffee cup on a walnut desk",
+    "notebook, reading glasses and a ceramic mug beside the printouts on a light oak desk",
+    "sleek laptop keyboard and a small potted plant at the edge of a bright desk",
+  ]);
+  const shot = pickRandom([
+    "editorial detail photography, three-quarter close-up, shallow depth of field",
+    "overhead flat-lay photography, soft shadows, crisp focus on the charts",
+    "over-the-shoulder detail shot, shallow depth of field, 50mm look",
+  ]);
+  return `${action} showing ${trendColor}, dark chart printouts on white paper spread across the desk, ${props}, soft natural window light, ${shot}, no faces, uncluttered lower third, no axis numbers, no price labels, no text overlays, vertical 9:16 format (720x1280)`;
+}
+
 function generateRuleImagePrompt(category: SceneCategory, matchText: string, chunk: string): string {
   // Topic overrides only enrich generic chart/b-roll scenes — a specific
   // person/logo/product match keeps its own subject.
@@ -315,7 +340,7 @@ function generateRuleImagePrompt(category: SceneCategory, matchText: string, chu
     case "logo":
       return `${matchText} logo signage on glass headquarters facade on a clear sunny day, low-angle architectural photography, blue sky and cloud reflections in glass, editorial press photo style, clean plaza in lower third, no text overlays, vertical 9:16 format (720x1280)`;
     case "chart":
-      return tradingDeskPrompt(trendColor);
+      return pickRandom([tradingDeskPrompt, printedChartsPrompt])(trendColor);
     case "product":
       return `${matchText}, hero product shot at slight angle on a clean white desk by a window, soft natural daylight, subtle true shadows, premium tech editorial photography, shallow depth of field, smooth uncluttered surface in lower third, no labels, no text overlays, vertical 9:16 format (720x1280)`;
     default:

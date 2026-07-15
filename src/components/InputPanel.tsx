@@ -14,7 +14,7 @@ import { Spinner } from "./Spinner";
 import { DELIVERY_PRESETS, V3_AUDIO_TAGS, parseVoiceSpec, type VoiceDelivery, type DeliveryPreset, type VoiceSettings } from "../lib/voices";
 import type { TopicMeta } from "../lib/storage";
 import { parseDigest } from "../lib/triage-parse";
-import { ZONES, formatTime } from "../lib/timezones";
+import { ZONES, formatTime, setWallTime, wallHHMM } from "../lib/timezones";
 
 const SCRIPT_CHAR_LIMIT = 5000;
 const SPOKEN_WORDS_PER_SECOND = 2.5;
@@ -802,7 +802,7 @@ const InputPanelInner: React.FC<Props> = ({
       {/* Posting/social brief — shown when captured, else an attach affordance */}
       <div className="px-3 pt-3">
         {topicMeta ? (
-          <PostDetailsCard meta={topicMeta} />
+          <PostDetailsCard meta={topicMeta} onChange={onTopicMetaChange} />
         ) : (
           <AttachPostDetails projectName={projectName} onAttach={onTopicMetaChange} />
         )}
@@ -2145,11 +2145,34 @@ function DeliveryControl({
   );
 }
 
+// Live current-time-in-ET readout, so the posting window can be judged at a
+// glance. Rendered only after mount to avoid a server/client hydration mismatch.
+function EtNowClock() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 15_000);
+    return () => clearInterval(id);
+  }, []);
+  if (!now) return null;
+  return (
+    <span className="text-micro text-zinc-400 tabular-nums" title="Current time in ET">
+      Now {formatTime(now, ZONES.ET.id)} <span className="text-zinc-600">ET</span>
+    </span>
+  );
+}
+
 // Read-only posting/social brief captured from the daily digest, shown on the
 // project page. Copy buttons make it quick to grab when actually posting.
-function PostDetailsCard({ meta }: { meta: TopicMeta }) {
+function PostDetailsCard({ meta, onChange }: { meta: TopicMeta; onChange: (m: TopicMeta) => void }) {
   const copy = (s?: string) => { if (s) navigator.clipboard?.writeText(s); };
   const t = meta.postAt ? new Date(meta.postAt) : null;
+  // Editable in ET; the triage time stays until overridden here. WAT is derived.
+  const setPostTimeET = (hhmm: string) => {
+    const [hh, mm] = hhmm.split(":").map(Number);
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
+    onChange({ ...meta, postAt: setWallTime(t ?? new Date(), hh, mm, ZONES.ET.id).getTime() });
+  };
   const CopyRow = ({ label, value }: { label: string; value: string }) => (
     <div>
       <div className="flex items-center justify-between">
@@ -2163,14 +2186,27 @@ function PostDetailsCard({ meta }: { meta: TopicMeta }) {
     <Disclosure
       title="Post details"
       defaultOpen
-      right={meta.score != null ? <span className="text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-300 tabular-nums">{meta.score}</span> : undefined}
+      right={
+        <span className="flex items-center gap-2">
+          <EtNowClock />
+          {meta.score != null && <span className="text-micro px-1.5 py-0.5 rounded bg-zinc-800 text-emerald-300 tabular-nums">{meta.score}</span>}
+        </span>
+      }
     >
-        {t && (
-          <div className="flex items-center gap-2 text-mini">
-            <span className="text-zinc-500">Post</span>
-            <span className="text-zinc-200 tabular-nums">{formatTime(t, ZONES.WAT.id)} <span className="text-zinc-600">WAT</span> · {formatTime(t, ZONES.ET.id)} <span className="text-zinc-600">ET</span></span>
-          </div>
-        )}
+        <div className="flex items-center gap-2 text-mini">
+          <span className="text-zinc-500">Post</span>
+          <input
+            type="time"
+            value={t ? wallHHMM(t, ZONES.ET.id) : ""}
+            onChange={(e) => setPostTimeET(e.target.value)}
+            className="bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-mini text-zinc-200 tabular-nums focus-visible:ring-2 focus-visible:ring-violet-500"
+            title="Planned posting time, in ET"
+          />
+          <span className="text-zinc-600">ET</span>
+          {t && (
+            <span className="text-zinc-200 tabular-nums">· {formatTime(t, ZONES.WAT.id)} <span className="text-zinc-600">WAT</span></span>
+          )}
+        </div>
         {meta.postTiming && <p className="text-mini text-zinc-400"><span className="text-zinc-500">Timing:</span> {meta.postTiming}</p>}
         {(meta.platform || meta.why) && (
           <p className="text-mini text-zinc-400">
